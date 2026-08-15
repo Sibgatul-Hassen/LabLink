@@ -24,7 +24,6 @@ coverage/
 *.swp
 
 # Prisma
-prisma/migrations/
 
 # OS
 .DS_Store
