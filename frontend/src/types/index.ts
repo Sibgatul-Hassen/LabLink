@@ -36,6 +36,12 @@ export interface Component {
   unit: string;
   isReturnable: boolean;
   isActive: boolean;
+
+  stock?: {
+    onHand: number;
+    spareQty: number;
+    reorderPoint: number;
+  } | null;
 }
 
 export interface ComponentListResponse {
