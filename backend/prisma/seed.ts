@@ -13,22 +13,42 @@ async function main() {
     prisma.department.upsert({
       where: { code: "CSE" },
       update: {},
-      create: { code: "CSE", name: "Computer Science and Engineering", isOffice: false, isActive: true },
+      create: {
+        code: "CSE",
+        name: "Computer Science and Engineering",
+        isOffice: false,
+        isActive: true,
+      },
     }),
     prisma.department.upsert({
       where: { code: "EEE" },
       update: {},
-      create: { code: "EEE", name: "Electrical and Electronics Engineering", isOffice: false, isActive: true },
+      create: {
+        code: "EEE",
+        name: "Electrical and Electronics Engineering",
+        isOffice: false,
+        isActive: true,
+      },
     }),
     prisma.department.upsert({
       where: { code: "CIVIL" },
       update: {},
-      create: { code: "CIVIL", name: "Civil Engineering", isOffice: false, isActive: true },
+      create: {
+        code: "CIVIL",
+        name: "Civil Engineering",
+        isOffice: false,
+        isActive: true,
+      },
     }),
     prisma.department.upsert({
       where: { code: "OFFICE" },
       update: {},
-      create: { code: "OFFICE", name: "Component Room Office", isOffice: true, isActive: true },
+      create: {
+        code: "OFFICE",
+        name: "Component Room Office",
+        isOffice: true,
+        isActive: true,
+      },
     }),
   ]);
   console.log("Created", departments.length, "departments");
@@ -126,18 +146,90 @@ async function main() {
 
   // Create components
   const componentSpecs = [
-    { code: "ARD-UNO-R3", name: "Arduino Uno R3", category: "Microcontroller", sizeClass: "EXPENSIVE" as const, unitCost: 25.0 },
-    { code: "ARD-NANO", name: "Arduino Nano", category: "Microcontroller", sizeClass: "EXPENSIVE" as const, unitCost: 20.0 },
-    { code: "ESP32-DEV", name: "ESP32 DevKit", category: "Microcontroller", sizeClass: "EXPENSIVE" as const, unitCost: 30.0 },
-    { code: "MULTI-DIG", name: "Digital Multimeter", category: "Instrument", sizeClass: "EXPENSIVE" as const, unitCost: 150.0 },
-    { code: "OSCIL-50MHZ", name: "Oscilloscope", category: "Instrument", sizeClass: "EXPENSIVE" as const, unitCost: 500.0 },
-    { code: "BREAD-830PT", name: "Breadboard 830pt", category: "Component Holder", sizeClass: "SMALL" as const, unitCost: 5.0 },
-    { code: "JUMP-MM", name: "Jumper Wire M-M", category: "Passive", sizeClass: "SMALL" as const, unitCost: 0.5 },
-    { code: "LED-RED-5MM", name: "Red LED 5mm", category: "Passive", sizeClass: "SMALL" as const, unitCost: 0.1 },
-    { code: "RES-220OHM", name: "Resistor 220Ω", category: "Passive", sizeClass: "SMALL" as const, unitCost: 0.05 },
-    { code: "RES-10KOHM", name: "Resistor 10kΩ", category: "Passive", sizeClass: "SMALL" as const, unitCost: 0.05 },
-    { code: "SERVO-SG90", name: "Servo SG90", category: "Motor", sizeClass: "SMALL" as const, unitCost: 10.0 },
-    { code: "ULTRA-HC-SR04", name: "Ultrasonic HC-SR04", category: "Sensor", sizeClass: "SMALL" as const, unitCost: 8.0 },
+    {
+      code: "ARD-UNO-R3",
+      name: "Arduino Uno R3",
+      category: "Microcontroller",
+      sizeClass: "EXPENSIVE" as const,
+      unitCost: 25.0,
+    },
+    {
+      code: "ARD-NANO",
+      name: "Arduino Nano",
+      category: "Microcontroller",
+      sizeClass: "EXPENSIVE" as const,
+      unitCost: 20.0,
+    },
+    {
+      code: "ESP32-DEV",
+      name: "ESP32 DevKit",
+      category: "Microcontroller",
+      sizeClass: "EXPENSIVE" as const,
+      unitCost: 30.0,
+    },
+    {
+      code: "MULTI-DIG",
+      name: "Digital Multimeter",
+      category: "Instrument",
+      sizeClass: "EXPENSIVE" as const,
+      unitCost: 150.0,
+    },
+    {
+      code: "OSCIL-50MHZ",
+      name: "Oscilloscope",
+      category: "Instrument",
+      sizeClass: "EXPENSIVE" as const,
+      unitCost: 500.0,
+    },
+    {
+      code: "BREAD-830PT",
+      name: "Breadboard 830pt",
+      category: "Component Holder",
+      sizeClass: "SMALL" as const,
+      unitCost: 5.0,
+    },
+    {
+      code: "JUMP-MM",
+      name: "Jumper Wire M-M",
+      category: "Passive",
+      sizeClass: "SMALL" as const,
+      unitCost: 0.5,
+    },
+    {
+      code: "LED-RED-5MM",
+      name: "Red LED 5mm",
+      category: "Passive",
+      sizeClass: "SMALL" as const,
+      unitCost: 0.1,
+    },
+    {
+      code: "RES-220OHM",
+      name: "Resistor 220Ω",
+      category: "Passive",
+      sizeClass: "SMALL" as const,
+      unitCost: 0.05,
+    },
+    {
+      code: "RES-10KOHM",
+      name: "Resistor 10kΩ",
+      category: "Passive",
+      sizeClass: "SMALL" as const,
+      unitCost: 0.05,
+    },
+    {
+      code: "SERVO-SG90",
+      name: "Servo SG90",
+      category: "Motor",
+      sizeClass: "SMALL" as const,
+      unitCost: 10.0,
+    },
+    {
+      code: "ULTRA-HC-SR04",
+      name: "Ultrasonic HC-SR04",
+      category: "Sensor",
+      sizeClass: "SMALL" as const,
+      unitCost: 8.0,
+    },
   ];
 
   const components = await Promise.all(
@@ -155,8 +247,8 @@ async function main() {
           isReturnable: true,
           isActive: true,
         },
-      })
-    )
+      }),
+    ),
   );
   console.log("Created", components.length, "components");
 
@@ -168,11 +260,11 @@ async function main() {
       let reorderPoint: number;
 
       if (component.sizeClass === "EXPENSIVE") {
-        onHand = 3 + Math.floor(Math.random() * 3);
+        onHand = 4;
         spareQty = 1;
         reorderPoint = 2;
       } else {
-        onHand = 50 + Math.floor(Math.random() * 50);
+        onHand = 75;
         spareQty = 10;
         reorderPoint = 20;
       }
@@ -187,7 +279,7 @@ async function main() {
           reorderPoint,
         },
       });
-    })
+    }),
   );
   console.log("Created", components.length, "stock entries");
 
