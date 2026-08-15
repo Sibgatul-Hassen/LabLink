@@ -4,19 +4,19 @@ import type { User } from "../types";
 interface AuthState {
   token: string | null;
   user: User | null;
-  setAuth: (token: string, user: User) => void;
-  clearAuth: () => void;
+  login: (token: string, user: User) => void;
+  logout: () => void;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
   token: null,
   user: null,
 
-  setAuth: (token, user) => {
+  login: (token, user) => {
     set({ token, user });
   },
 
-  clearAuth: () => {
+  logout: () => {
     set({
       token: null,
       user: null,
