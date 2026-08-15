@@ -1,16 +1,46 @@
-import request from "supertest";
-import express from "express";
+import bcryptjs from "bcryptjs";
 import cors from "cors";
+import express from "express";
+import request from "supertest";
+
+import { prisma } from "../lib/prisma";
 import authRouter from "./auth.routes";
 import componentRouter from "./component.routes";
-import { prisma } from "../lib/prisma";
-import bcryptjs from "bcryptjs";
 
 const app = express();
+
 app.use(cors());
 app.use(express.json());
 app.use("/api", authRouter);
 app.use("/api", componentRouter);
+
+const testEmails = ["central@test.com", "admin@test.com", "student@test.com"];
+
+const testComponentCodes = ["TEST-001", "TEST-DENY"];
+
+async function cleanupTestData() {
+  await prisma.component.deleteMany({
+    where: {
+      code: {
+        in: testComponentCodes,
+      },
+    },
+  });
+
+  await prisma.user.deleteMany({
+    where: {
+      email: {
+        in: testEmails,
+      },
+    },
+  });
+
+  await prisma.department.deleteMany({
+    where: {
+      code: "TEST",
+    },
+  });
+}
 
 describe("Component CRUD API Integration Tests", () => {
   let authToken: string;
@@ -18,19 +48,20 @@ describe("Component CRUD API Integration Tests", () => {
   let componentId: string;
 
   beforeAll(async () => {
-    // Clear existing test data
-    await prisma.component.deleteMany({});
-    await prisma.user.deleteMany({});
-    await prisma.department.deleteMany({});
+    // Remove only data created by this test suite.
+    // Never clear the real development/seed data.
+    await cleanupTestData();
 
-    // Create departments
     const dept = await prisma.department.create({
-      data: { code: "TEST", name: "Test Dept", isOffice: false },
+      data: {
+        code: "TEST",
+        name: "Test Dept",
+        isOffice: false,
+      },
     });
 
-    // Create test users
     const hashedPassword = await bcryptjs.hash("test123", 10);
-    
+
     await prisma.user.create({
       data: {
         email: "central@test.com",
@@ -51,22 +82,25 @@ describe("Component CRUD API Integration Tests", () => {
       },
     });
 
-    // Get auth tokens
-    const centralRes = await request(app)
-      .post("/api/auth/login")
-      .send({ email: "central@test.com", password: "test123" });
+    const centralRes = await request(app).post("/api/auth/login").send({
+      email: "central@test.com",
+      password: "test123",
+    });
+
+    expect(centralRes.status).toBe(200);
     authToken = centralRes.body.token;
 
-    const adminRes = await request(app)
-      .post("/api/auth/login")
-      .send({ email: "admin@test.com", password: "test123" });
+    const adminRes = await request(app).post("/api/auth/login").send({
+      email: "admin@test.com",
+      password: "test123",
+    });
+
+    expect(adminRes.status).toBe(200);
     systemAdminToken = adminRes.body.token;
   });
 
   afterAll(async () => {
-    await prisma.component.deleteMany({});
-    await prisma.user.deleteMany({});
-    await prisma.department.deleteMany({});
+    await cleanupTestData();
     await prisma.$disconnect();
   });
 
@@ -80,12 +114,13 @@ describe("Component CRUD API Integration Tests", () => {
           name: "Test Component",
           category: "Test",
           sizeClass: "SMALL",
-          unitCost: 10.0,
+          unitCost: 10,
         });
 
       expect(res.status).toBe(201);
       expect(res.body.data.code).toBe("TEST-001");
       expect(res.body.data.name).toBe("Test Component");
+
       componentId = res.body.data.id;
     });
 
@@ -98,6 +133,7 @@ describe("Component CRUD API Integration Tests", () => {
           name: "Another Component",
           category: "Test",
           sizeClass: "SMALL",
+          unitCost: 10,
         });
 
       expect(res.status).toBe(409);
@@ -122,7 +158,9 @@ describe("Component CRUD API Integration Tests", () => {
         .set("Authorization", `Bearer ${authToken}`);
 
       expect(res.status).toBe(200);
+      expect(Array.isArray(res.body.data)).toBe(true);
       expect(res.body.data.length).toBeGreaterThan(0);
+      expect(res.body.data[0].code).toContain("TEST");
     });
 
     it("should get component by ID", async () => {
@@ -132,6 +170,7 @@ describe("Component CRUD API Integration Tests", () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data.id).toBe(componentId);
+      expect(res.body.data.code).toBe("TEST-001");
     });
 
     it("should return 404 for non-existent component", async () => {
@@ -150,17 +189,17 @@ describe("Component CRUD API Integration Tests", () => {
         .set("Authorization", `Bearer ${authToken}`)
         .send({
           name: "Updated Component",
-          unitCost: 20.0,
+          unitCost: 20,
         });
 
       expect(res.status).toBe(200);
       expect(res.body.data.name).toBe("Updated Component");
-      expect(res.body.data.unitCost).toBe("20.0");
+      expect(Number(res.body.data.unitCost)).toBe(20);
     });
   });
 
   describe("DELETE - DELETE /api/components/:id", () => {
-    it("should soft delete component (SYSTEM_ADMIN only)", async () => {
+    it("should soft delete component with SYSTEM_ADMIN role", async () => {
       const res = await request(app)
         .delete(`/api/components/${componentId}`)
         .set("Authorization", `Bearer ${systemAdminToken}`);
@@ -179,23 +218,34 @@ describe("Component CRUD API Integration Tests", () => {
 
   describe("Authorization Tests", () => {
     it("should deny create without CENTRAL_STORE_OFFICER or SYSTEM_ADMIN", async () => {
-      // Create a student user
-      const dept = await prisma.department.findFirst();
+      const dept = await prisma.department.findUnique({
+        where: {
+          code: "TEST",
+        },
+      });
+
+      if (!dept) {
+        throw new Error("TEST department not found");
+      }
+
       const hashedPassword = await bcryptjs.hash("test123", 10);
-      
+
       await prisma.user.create({
         data: {
           email: "student@test.com",
           passwordHash: hashedPassword,
           fullName: "Student",
           role: "STUDENT",
-          departmentId: dept?.id,
+          departmentId: dept.id,
         },
       });
 
-      const studentRes = await request(app)
-        .post("/api/auth/login")
-        .send({ email: "student@test.com", password: "test123" });
+      const studentRes = await request(app).post("/api/auth/login").send({
+        email: "student@test.com",
+        password: "test123",
+      });
+
+      expect(studentRes.status).toBe(200);
 
       const res = await request(app)
         .post("/api/components")
@@ -205,6 +255,7 @@ describe("Component CRUD API Integration Tests", () => {
           name: "Should Fail",
           category: "Test",
           sizeClass: "SMALL",
+          unitCost: 10,
         });
 
       expect(res.status).toBe(403);
