@@ -14,7 +14,7 @@
     "db:studio": "prisma studio"
   },
   "prisma": {
-    "seed": "ts-node-dev --transpile-only prisma/seed.ts"
+    "seed": "ts-node --transpile-only prisma/seed.ts"
   },
   "dependencies": {
     "@prisma/client": "^5",
