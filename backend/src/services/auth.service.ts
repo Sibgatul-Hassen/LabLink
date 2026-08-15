@@ -2,13 +2,16 @@ import bcryptjs from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { prisma } from "../lib/prisma";
 import { UserDTO, JWTPayload, LoginResponseDTO } from "../types";
-import { Role } from "@prisma/client";
+import { env } from "../config/env";
 
-const JWT_SECRET = process.env.JWT_SECRET!;
+const JWT_SECRET = env.JWT_SECRET;
 const JWT_EXPIRY = "8h";
 
 export class AuthService {
-  static async login(email: string, password: string): Promise<LoginResponseDTO> {
+  static async login(
+    email: string,
+    password: string,
+  ): Promise<LoginResponseDTO> {
     const user = await prisma.user.findUnique({
       where: { email },
       include: { department: true },
