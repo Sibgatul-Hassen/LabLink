@@ -22,7 +22,7 @@ apiClient.interceptors.response.use(
   (response) => response,
   (error: unknown) => {
     if (axios.isAxiosError(error) && error.response?.status === 401) {
-      useAuthStore.getState().clearAuth();
+      useAuthStore.getState().logout();
 
       if (window.location.pathname !== "/login") {
         window.location.href = "/login";
