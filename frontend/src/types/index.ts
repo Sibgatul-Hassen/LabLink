@@ -32,8 +32,9 @@ export interface Component {
   name: string;
   category: string;
   sizeClass: "EXPENSIVE" | "SMALL";
-  unitCost: string | number;
+  unitCost: string | number | null;
   unit: string;
+  description?: string | null;
   isReturnable: boolean;
   isActive: boolean;
 
@@ -43,6 +44,19 @@ export interface Component {
     reorderPoint: number;
   } | null;
 }
+
+export interface CreateComponentRequest {
+  code: string;
+  name: string;
+  category: string;
+  sizeClass: "EXPENSIVE" | "SMALL";
+  unit: string;
+  unitCost?: number | null;
+  description?: string | null;
+  isReturnable: boolean;
+}
+
+export type UpdateComponentRequest = Partial<CreateComponentRequest>;
 
 export interface ComponentListResponse {
   data: Component[];

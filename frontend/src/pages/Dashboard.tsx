@@ -55,7 +55,7 @@ export default function Dashboard() {
     isError,
   } = useQuery({
     queryKey: ["components", "dashboard"],
-    queryFn: getComponents,
+    queryFn: () => getComponents(),
   });
 
   if (!user) {
