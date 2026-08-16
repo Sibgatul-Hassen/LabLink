@@ -100,6 +100,18 @@ export default function Components() {
         limit,
       }),
   });
+  const { data: categoryData } = useQuery({
+    queryKey: ["components", "categories"],
+    queryFn: () =>
+      getComponents({
+        page: 1,
+        limit: 100,
+      }),
+  });
+
+  const categories = Array.from(
+    new Set((categoryData?.data ?? []).map((component) => component.category)),
+  ).sort((a, b) => a.localeCompare(b));
 
   const saveMutation = useMutation({
     mutationFn: async (payload: CreateComponentRequest) => {
@@ -291,17 +303,23 @@ export default function Components() {
             Category
           </label>
 
-          <input
+          <select
             id="category-filter"
-            type="text"
             value={category}
             onChange={(event) => {
               setCategory(event.target.value);
               setPage(1);
             }}
-            placeholder="Filter by category"
             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
-          />
+          >
+            <option value="">All Categories</option>
+
+            {categories.map((categoryName) => (
+              <option key={categoryName} value={categoryName}>
+                {categoryName}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
