@@ -18,16 +18,8 @@ function getSidebarLinks(role: Role): SidebarLink[] {
     { label: "Components", to: "/components" },
   ];
 
-  if (role === "CENTRAL_STORE_OFFICER") {
-    return [...basicLinks, { label: "Manage Components", to: "/components" }];
-  }
-
   if (role === "SYSTEM_ADMIN") {
-    return [
-      ...basicLinks,
-      { label: "Manage Components", to: "/components" },
-      { label: "Users", to: "/users" },
-    ];
+    return [...basicLinks, { label: "Users", to: "/users" }];
   }
 
   return basicLinks;
