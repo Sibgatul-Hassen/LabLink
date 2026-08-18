@@ -89,3 +89,33 @@ export interface DepartmentListResponse {
   page: number;
   limit: number;
 }
+
+export interface CourseDepartment {
+  id: string;
+  code: string;
+  name: string;
+}
+
+export interface Course {
+  id: string;
+  code: string;
+  title: string;
+  departmentId: string;
+  isActive: boolean;
+  department: CourseDepartment;
+}
+
+export interface CreateCourseRequest {
+  code: string;
+  title: string;
+  departmentId: string;
+}
+
+export type UpdateCourseRequest = Partial<CreateCourseRequest>;
+
+export interface CourseListResponse {
+  data: Course[];
+  total: number;
+  page: number;
+  limit: number;
+}
