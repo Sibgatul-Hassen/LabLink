@@ -119,3 +119,48 @@ export interface CourseListResponse {
   page: number;
   limit: number;
 }
+
+export interface SectionCourse {
+  id: string;
+  code: string;
+  title: string;
+  departmentId: string;
+}
+
+export interface SectionUser {
+  id: string;
+  fullName: string;
+  email: string;
+  role: Role;
+}
+
+export interface Section {
+  id: string;
+  courseId: string;
+  name: string;
+  semester: string;
+  studentCount: number;
+  instructorId: string | null;
+  labAssistantId: string | null;
+  course: SectionCourse;
+  instructor: SectionUser | null;
+  labAssistant: SectionUser | null;
+}
+
+export interface CreateSectionRequest {
+  courseId: string;
+  name: string;
+  semester: string;
+  studentCount: number;
+  instructorId?: string | null;
+  labAssistantId?: string | null;
+}
+
+export type UpdateSectionRequest = Partial<CreateSectionRequest>;
+
+export interface SectionListResponse {
+  data: Section[];
+  total: number;
+  page: number;
+  limit: number;
+}
