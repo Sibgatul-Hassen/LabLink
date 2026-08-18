@@ -64,3 +64,28 @@ export interface ComponentListResponse {
   page: number;
   limit: number;
 }
+
+export interface Department {
+  id: string;
+  code: string;
+  name: string;
+  isOffice: boolean;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateDepartmentRequest {
+  code: string;
+  name: string;
+  isOffice: boolean;
+}
+
+export type UpdateDepartmentRequest = Partial<CreateDepartmentRequest>;
+
+export interface DepartmentListResponse {
+  data: Department[];
+  total: number;
+  page: number;
+  limit: number;
+}

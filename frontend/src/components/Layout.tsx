@@ -19,7 +19,11 @@ function getSidebarLinks(role: Role): SidebarLink[] {
   ];
 
   if (role === "SYSTEM_ADMIN") {
-    return [...basicLinks, { label: "Users", to: "/users" }];
+    return [
+      ...basicLinks,
+      { label: "Departments", to: "/departments" },
+      { label: "Users", to: "/users" },
+    ];
   }
 
   return basicLinks;
