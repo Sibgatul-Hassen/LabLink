@@ -6,6 +6,7 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Components from "./pages/Components";
 import Departments from "./pages/Departments";
+import Courses from "./pages/Courses";
 
 export default function App() {
   return (
@@ -40,6 +41,17 @@ export default function App() {
           <ProtectedRoute>
             <Layout>
               <Departments />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/courses"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <Courses />
             </Layout>
           </ProtectedRoute>
         }

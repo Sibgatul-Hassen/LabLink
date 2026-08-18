@@ -16,6 +16,7 @@ function getSidebarLinks(role: Role): SidebarLink[] {
   const basicLinks: SidebarLink[] = [
     { label: "Dashboard", to: "/dashboard" },
     { label: "Components", to: "/components" },
+    { label: "Courses", to: "/courses" },
   ];
 
   if (role === "SYSTEM_ADMIN") {

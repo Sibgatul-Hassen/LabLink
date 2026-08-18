@@ -5,6 +5,7 @@ import healthRouter from "./routes/health.routes";
 import authRouter from "./routes/auth.routes";
 import componentRouter from "./routes/component.routes";
 import departmentRouter from "./routes/department.routes";
+import courseRouter from "./routes/course.routes";
 
 const app = express();
 
@@ -14,6 +15,7 @@ app.use(healthRouter);
 app.use("/api", authRouter);
 app.use("/api", componentRouter);
 app.use("/api", departmentRouter);
+app.use("/api", courseRouter);
 
 app.listen(env.PORT, () => {
   console.log(`LabLink API listening on port ${env.PORT}`);
