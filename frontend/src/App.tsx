@@ -9,6 +9,7 @@ import Departments from "./pages/Departments";
 import Courses from "./pages/Courses";
 import Sections from "./pages/Sections";
 import Labs from "./pages/Labs";
+import RoutineSlots from "./pages/RoutineSlots";
 
 export default function App() {
   return (
@@ -76,6 +77,17 @@ export default function App() {
           <ProtectedRoute>
             <Layout>
               <Labs />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/routine-slots"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <RoutineSlots />
             </Layout>
           </ProtectedRoute>
         }
