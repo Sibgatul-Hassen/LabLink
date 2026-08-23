@@ -193,3 +193,55 @@ export interface LabListResponse {
   page: number;
   limit: number;
 }
+
+export interface RoutineSlotCourse {
+  id: string;
+  code: string;
+  title: string;
+}
+
+export interface RoutineSlotSection {
+  id: string;
+  name: string;
+  semester: string;
+  course: RoutineSlotCourse;
+}
+
+export interface RoutineSlotLab {
+  id: string;
+  name: string;
+  roomNo: string;
+  department: CourseDepartment;
+}
+
+export interface RoutineSlot {
+  id: string;
+  sectionId: string;
+  labId: string;
+  dayOfWeek: number;
+  startTime: string;
+  endTime: string;
+  effectiveFrom: string;
+  effectiveTo: string;
+  section: RoutineSlotSection;
+  lab: RoutineSlotLab;
+}
+
+export interface CreateRoutineSlotRequest {
+  sectionId: string;
+  labId: string;
+  dayOfWeek: number;
+  startTime: string;
+  endTime: string;
+  effectiveFrom: string;
+  effectiveTo: string;
+}
+
+export type UpdateRoutineSlotRequest = Partial<CreateRoutineSlotRequest>;
+
+export interface RoutineSlotListResponse {
+  data: RoutineSlot[];
+  total: number;
+  page: number;
+  limit: number;
+}

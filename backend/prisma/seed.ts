@@ -317,6 +317,166 @@ async function main() {
     ),
   );
   console.log("Created", labs.length, "labs");
+  const labByRoom = Object.fromEntries(labs.map((lab) => [lab.roomNo, lab]));
+
+  // Create courses
+  const courseSpecs = [
+    { code: "CSE 3216", title: "Microprocessor and Microcontroller Lab" },
+    { code: "CSE 4108", title: "Embedded Systems Lab" },
+    { code: "CSE 2216", title: "Digital Logic Design Lab" },
+  ];
+
+  const courses = await Promise.all(
+    courseSpecs.map((spec) =>
+      prisma.course.upsert({
+        where: { code: spec.code },
+        update: { title: spec.title, isActive: true },
+        create: {
+          code: spec.code,
+          title: spec.title,
+          departmentId: departments[0].id,
+          isActive: true,
+        },
+      }),
+    ),
+  );
+  console.log("Created", courses.length, "courses");
+
+  const courseByCode = Object.fromEntries(
+    courses.map((course) => [course.code, course]),
+  );
+
+  // Create sections
+  const SEMESTER = "Spring 2026";
+
+  const sectionSpecs = [
+    { course: "CSE 3216", name: "A", studentCount: 45 },
+    { course: "CSE 3216", name: "B", studentCount: 42 },
+    { course: "CSE 4108", name: "A", studentCount: 38 },
+    { course: "CSE 4108", name: "B", studentCount: 36 },
+    { course: "CSE 2216", name: "A", studentCount: 48 },
+    { course: "CSE 2216", name: "B", studentCount: 44 },
+  ];
+
+  const sections = await Promise.all(
+    sectionSpecs.map((spec) =>
+      prisma.section.upsert({
+        where: {
+          courseId_name_semester: {
+            courseId: courseByCode[spec.course].id,
+            name: spec.name,
+            semester: SEMESTER,
+          },
+        },
+        update: {
+          studentCount: spec.studentCount,
+          instructorId: users[1].id,
+          labAssistantId: users[2].id,
+        },
+        create: {
+          courseId: courseByCode[spec.course].id,
+          name: spec.name,
+          semester: SEMESTER,
+          studentCount: spec.studentCount,
+          instructorId: users[1].id,
+          labAssistantId: users[2].id,
+        },
+      }),
+    ),
+  );
+  console.log("Created", sections.length, "sections");
+
+  const sectionByKey: Record<string, (typeof sections)[number]> = {};
+  sectionSpecs.forEach((spec, index) => {
+    sectionByKey[`${spec.course}|${spec.name}`] = sections[index];
+  });
+
+  // Create routine slots
+  const EFFECTIVE_FROM = new Date("2026-01-15");
+  const EFFECTIVE_TO = new Date("2026-05-30");
+
+  const routineSlotSpecs = [
+    {
+      course: "CSE 3216",
+      section: "A",
+      dayOfWeek: 2,
+      startTime: "08:30",
+      endTime: "11:30",
+      room: "302",
+    },
+    {
+      course: "CSE 3216",
+      section: "B",
+      dayOfWeek: 0,
+      startTime: "08:30",
+      endTime: "11:30",
+      room: "302",
+    },
+    {
+      course: "CSE 4108",
+      section: "A",
+      dayOfWeek: 2,
+      startTime: "08:30",
+      endTime: "11:30",
+      room: "303",
+    },
+    {
+      course: "CSE 4108",
+      section: "B",
+      dayOfWeek: 2,
+      startTime: "14:00",
+      endTime: "17:00",
+      room: "303",
+    },
+    {
+      course: "CSE 2216",
+      section: "A",
+      dayOfWeek: 2,
+      startTime: "08:30",
+      endTime: "11:30",
+      room: "304",
+    },
+    {
+      course: "CSE 2216",
+      section: "B",
+      dayOfWeek: 0,
+      startTime: "14:00",
+      endTime: "17:00",
+      room: "304",
+    },
+  ];
+
+  // RoutineSlot has no natural unique key, so upsert is unavailable. Match on
+  // section + lab + day + start time instead, and run sequentially so a
+  // find-then-create pair cannot race itself into a duplicate.
+  for (const spec of routineSlotSpecs) {
+    const section = sectionByKey[`${spec.course}|${spec.section}`];
+    const lab = labByRoom[spec.room];
+
+    const existing = await prisma.routineSlot.findFirst({
+      where: {
+        sectionId: section.id,
+        labId: lab.id,
+        dayOfWeek: spec.dayOfWeek,
+        startTime: spec.startTime,
+      },
+    });
+
+    if (!existing) {
+      await prisma.routineSlot.create({
+        data: {
+          sectionId: section.id,
+          labId: lab.id,
+          dayOfWeek: spec.dayOfWeek,
+          startTime: spec.startTime,
+          endTime: spec.endTime,
+          effectiveFrom: EFFECTIVE_FROM,
+          effectiveTo: EFFECTIVE_TO,
+        },
+      });
+    }
+  }
+  console.log("Created", routineSlotSpecs.length, "routine slots");
 
   console.log("Seeding complete!");
 }
