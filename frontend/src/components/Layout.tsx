@@ -18,6 +18,7 @@ function getSidebarLinks(role: Role): SidebarLink[] {
     { label: "Components", to: "/components" },
     { label: "Courses", to: "/courses" },
     { label: "Sections", to: "/sections" },
+    { label: "Labs", to: "/labs" },
   ];
 
   if (role === "SYSTEM_ADMIN") {

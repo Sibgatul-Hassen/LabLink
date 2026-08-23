@@ -164,3 +164,32 @@ export interface SectionListResponse {
   page: number;
   limit: number;
 }
+
+export interface Lab {
+  id: string;
+  name: string;
+  roomNo: string;
+  groupSize: number;
+  departmentId: string;
+  labAssistantId: string | null;
+  isActive: boolean;
+  department: CourseDepartment;
+  labAssistant: SectionUser | null;
+}
+
+export interface CreateLabRequest {
+  name: string;
+  roomNo: string;
+  groupSize: number;
+  departmentId: string;
+  labAssistantId?: string | null;
+}
+
+export type UpdateLabRequest = Partial<CreateLabRequest>;
+
+export interface LabListResponse {
+  data: Lab[];
+  total: number;
+  page: number;
+  limit: number;
+}
