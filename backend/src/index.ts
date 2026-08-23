@@ -7,6 +7,7 @@ import componentRouter from "./routes/component.routes";
 import departmentRouter from "./routes/department.routes";
 import courseRouter from "./routes/course.routes";
 import sectionRouter from "./routes/section.routes";
+import labRouter from "./routes/lab.routes";
 
 const app = express();
 
@@ -18,6 +19,7 @@ app.use("/api", componentRouter);
 app.use("/api", departmentRouter);
 app.use("/api", courseRouter);
 app.use("/api", sectionRouter);
+app.use("/api", labRouter);
 
 app.listen(env.PORT, () => {
   console.log(`LabLink API listening on port ${env.PORT}`);

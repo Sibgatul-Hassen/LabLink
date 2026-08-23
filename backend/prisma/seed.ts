@@ -283,6 +283,41 @@ async function main() {
   );
   console.log("Created", components.length, "stock entries");
 
+  // Create labs
+  const labSpecs = [
+    { name: "Digital Systems Lab", roomNo: "302", groupSize: 4 },
+    { name: "Embedded Systems Lab", roomNo: "303", groupSize: 4 },
+    { name: "Logic Design Lab", roomNo: "304", groupSize: 4 },
+  ];
+
+  const labs = await Promise.all(
+    labSpecs.map((spec) =>
+      prisma.lab.upsert({
+        where: {
+          departmentId_roomNo: {
+            departmentId: departments[0].id,
+            roomNo: spec.roomNo,
+          },
+        },
+        update: {
+          name: spec.name,
+          groupSize: spec.groupSize,
+          labAssistantId: users[2].id,
+          isActive: true,
+        },
+        create: {
+          name: spec.name,
+          roomNo: spec.roomNo,
+          groupSize: spec.groupSize,
+          departmentId: departments[0].id,
+          labAssistantId: users[2].id,
+          isActive: true,
+        },
+      }),
+    ),
+  );
+  console.log("Created", labs.length, "labs");
+
   console.log("Seeding complete!");
 }
 
