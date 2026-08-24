@@ -245,3 +245,56 @@ export interface RoutineSlotListResponse {
   page: number;
   limit: number;
 }
+
+export interface ExperimentCourse {
+  id: string;
+  code: string;
+  title: string;
+}
+
+export interface ExperimentItemComponent {
+  id: string;
+  code: string;
+  name: string;
+  unit: string;
+  sizeClass: "EXPENSIVE" | "SMALL";
+}
+
+export interface ExperimentItem {
+  id: string;
+  experimentId: string;
+  componentId: string;
+  qtyPerGroup: number;
+  component: ExperimentItemComponent;
+}
+
+export interface Experiment {
+  id: string;
+  courseId: string;
+  number: number;
+  title: string;
+  course: ExperimentCourse;
+  items: ExperimentItem[];
+}
+
+export interface CreateExperimentRequest {
+  courseId: string;
+  number: number;
+  title: string;
+}
+
+export type UpdateExperimentRequest = Partial<CreateExperimentRequest>;
+
+export interface CreateExperimentItemRequest {
+  componentId: string;
+  qtyPerGroup: number;
+}
+
+export type UpdateExperimentItemRequest = Partial<CreateExperimentItemRequest>;
+
+export interface ExperimentListResponse {
+  data: Experiment[];
+  total: number;
+  page: number;
+  limit: number;
+}

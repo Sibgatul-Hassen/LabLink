@@ -10,6 +10,7 @@ import Courses from "./pages/Courses";
 import Sections from "./pages/Sections";
 import Labs from "./pages/Labs";
 import RoutineSlots from "./pages/RoutineSlots";
+import Experiments from "./pages/Experiments";
 
 export default function App() {
   return (
@@ -88,6 +89,17 @@ export default function App() {
           <ProtectedRoute>
             <Layout>
               <RoutineSlots />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/experiments"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <Experiments />
             </Layout>
           </ProtectedRoute>
         }

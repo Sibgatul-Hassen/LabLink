@@ -478,6 +478,156 @@ async function main() {
   }
   console.log("Created", routineSlotSpecs.length, "routine slots");
 
+  const compByCode = Object.fromEntries(
+    components.map((component) => [component.code, component]),
+  );
+
+  // Create experiments and their item lists
+  const experimentSpecs = [
+    {
+      course: "CSE 3216",
+      number: 1,
+      title: "Blinking LED and Digital Output",
+      items: [
+        { code: "ARD-UNO-R3", qtyPerGroup: 1 },
+        { code: "BREAD-830PT", qtyPerGroup: 1 },
+        { code: "LED-RED-5MM", qtyPerGroup: 4 },
+        { code: "RES-220OHM", qtyPerGroup: 4 },
+        { code: "JUMP-MM", qtyPerGroup: 1 },
+      ],
+    },
+    {
+      course: "CSE 3216",
+      number: 2,
+      title: "Analog Input and Sensors",
+      items: [
+        { code: "ARD-UNO-R3", qtyPerGroup: 1 },
+        { code: "BREAD-830PT", qtyPerGroup: 1 },
+        { code: "RES-10KOHM", qtyPerGroup: 2 },
+        { code: "JUMP-MM", qtyPerGroup: 1 },
+      ],
+    },
+    {
+      course: "CSE 3216",
+      number: 3,
+      title: "Serial Communication",
+      items: [
+        { code: "ARD-UNO-R3", qtyPerGroup: 1 },
+        { code: "ARD-NANO", qtyPerGroup: 1 },
+        { code: "BREAD-830PT", qtyPerGroup: 1 },
+      ],
+    },
+    {
+      // The demonstration experiment from SEED_DATA.md section 12.
+      course: "CSE 3216",
+      number: 4,
+      title: "PWM and Servo Control",
+      items: [
+        { code: "ARD-UNO-R3", qtyPerGroup: 2 },
+        { code: "SERVO-SG90", qtyPerGroup: 1 },
+        { code: "BREAD-830PT", qtyPerGroup: 1 },
+        { code: "LED-RED-5MM", qtyPerGroup: 5 },
+        { code: "RES-220OHM", qtyPerGroup: 5 },
+        { code: "JUMP-MM", qtyPerGroup: 1 },
+      ],
+    },
+    {
+      course: "CSE 4108",
+      number: 1,
+      title: "ESP32 GPIO and Interrupts",
+      items: [
+        { code: "ESP32-DEV", qtyPerGroup: 1 },
+        { code: "BREAD-830PT", qtyPerGroup: 1 },
+        { code: "LED-RED-5MM", qtyPerGroup: 3 },
+        { code: "RES-220OHM", qtyPerGroup: 3 },
+      ],
+    },
+    {
+      course: "CSE 4108",
+      number: 2,
+      title: "Ultrasonic Distance Measurement",
+      items: [
+        { code: "ESP32-DEV", qtyPerGroup: 1 },
+        { code: "ULTRA-HC-SR04", qtyPerGroup: 1 },
+        { code: "BREAD-830PT", qtyPerGroup: 1 },
+      ],
+    },
+    {
+      course: "CSE 4108",
+      number: 3,
+      title: "Wi-Fi Data Logging",
+      items: [
+        { code: "ESP32-DEV", qtyPerGroup: 1 },
+        { code: "BREAD-830PT", qtyPerGroup: 1 },
+      ],
+    },
+    {
+      course: "CSE 2216",
+      number: 1,
+      title: "Basic Logic Gates",
+      items: [
+        { code: "BREAD-830PT", qtyPerGroup: 1 },
+        { code: "LED-RED-5MM", qtyPerGroup: 4 },
+        { code: "RES-220OHM", qtyPerGroup: 4 },
+      ],
+    },
+    {
+      course: "CSE 2216",
+      number: 2,
+      title: "Flip-Flops and Latches",
+      items: [
+        { code: "BREAD-830PT", qtyPerGroup: 1 },
+        { code: "LED-RED-5MM", qtyPerGroup: 4 },
+        { code: "OSCIL-50MHZ", qtyPerGroup: 1 },
+      ],
+    },
+    {
+      course: "CSE 2216",
+      number: 3,
+      title: "Counters and Registers",
+      items: [
+        { code: "BREAD-830PT", qtyPerGroup: 1 },
+        { code: "LED-RED-5MM", qtyPerGroup: 8 },
+      ],
+    },
+  ];
+
+  for (const spec of experimentSpecs) {
+    const course = courseByCode[spec.course];
+
+    const experiment = await prisma.experiment.upsert({
+      where: {
+        courseId_number: { courseId: course.id, number: spec.number },
+      },
+      update: { title: spec.title },
+      create: {
+        courseId: course.id,
+        number: spec.number,
+        title: spec.title,
+      },
+    });
+
+    for (const item of spec.items) {
+      const component = compByCode[item.code];
+
+      await prisma.experimentItem.upsert({
+        where: {
+          experimentId_componentId: {
+            experimentId: experiment.id,
+            componentId: component.id,
+          },
+        },
+        update: { qtyPerGroup: item.qtyPerGroup },
+        create: {
+          experimentId: experiment.id,
+          componentId: component.id,
+          qtyPerGroup: item.qtyPerGroup,
+        },
+      });
+    }
+  }
+  console.log("Created", experimentSpecs.length, "experiments");
+
   console.log("Seeding complete!");
 }
 

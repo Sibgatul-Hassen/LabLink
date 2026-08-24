@@ -20,6 +20,7 @@ function getSidebarLinks(role: Role): SidebarLink[] {
     { label: "Sections", to: "/sections" },
     { label: "Labs", to: "/labs" },
     { label: "Routine Slots", to: "/routine-slots" },
+    { label: "Experiments", to: "/experiments" },
   ];
 
   if (role === "SYSTEM_ADMIN") {
