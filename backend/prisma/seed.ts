@@ -392,8 +392,25 @@ async function main() {
   });
 
   // Create routine slots
-  const EFFECTIVE_FROM = new Date("2026-01-15");
-  const EFFECTIVE_TO = new Date("2026-05-30");
+  // SEED_DATA.md fixes these at 2026-01-15 → 2026-05-30, but a routine whose
+  // window has already closed generates no sessions at all, so the demo would
+  // look broken. Anchoring to the current date keeps generateSessions()
+  // meaningful whenever the seed is run.
+  const seedNow = new Date();
+  const EFFECTIVE_FROM = new Date(
+    Date.UTC(
+      seedNow.getUTCFullYear(),
+      seedNow.getUTCMonth(),
+      seedNow.getUTCDate() - 60,
+    ),
+  );
+  const EFFECTIVE_TO = new Date(
+    Date.UTC(
+      seedNow.getUTCFullYear(),
+      seedNow.getUTCMonth(),
+      seedNow.getUTCDate() + 120,
+    ),
+  );
 
   const routineSlotSpecs = [
     {
@@ -448,7 +465,8 @@ async function main() {
 
   // RoutineSlot has no natural unique key, so upsert is unavailable. Match on
   // section + lab + day + start time instead, and run sequentially so a
-  // find-then-create pair cannot race itself into a duplicate.
+  // find-then-create pair cannot race itself into a duplicate. Existing rows
+  // are updated so re-seeding refreshes the effective window.
   for (const spec of routineSlotSpecs) {
     const section = sectionByKey[`${spec.course}|${spec.section}`];
     const lab = labByRoom[spec.room];
@@ -462,7 +480,16 @@ async function main() {
       },
     });
 
-    if (!existing) {
+    if (existing) {
+      await prisma.routineSlot.update({
+        where: { id: existing.id },
+        data: {
+          endTime: spec.endTime,
+          effectiveFrom: EFFECTIVE_FROM,
+          effectiveTo: EFFECTIVE_TO,
+        },
+      });
+    } else {
       await prisma.routineSlot.create({
         data: {
           sectionId: section.id,
@@ -476,6 +503,7 @@ async function main() {
       });
     }
   }
+
   console.log("Created", routineSlotSpecs.length, "routine slots");
 
   const compByCode = Object.fromEntries(

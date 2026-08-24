@@ -11,6 +11,7 @@ import Sections from "./pages/Sections";
 import Labs from "./pages/Labs";
 import RoutineSlots from "./pages/RoutineSlots";
 import Experiments from "./pages/Experiments";
+import ClassSessions from "./pages/ClassSessions";
 
 export default function App() {
   return (
@@ -100,6 +101,17 @@ export default function App() {
           <ProtectedRoute>
             <Layout>
               <Experiments />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/sessions"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <ClassSessions />
             </Layout>
           </ProtectedRoute>
         }

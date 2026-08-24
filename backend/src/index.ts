@@ -10,6 +10,7 @@ import sectionRouter from "./routes/section.routes";
 import labRouter from "./routes/lab.routes";
 import routineSlotRouter from "./routes/routine-slot.routes";
 import experimentRouter from "./routes/experiment.routes";
+import sessionRouter from "./routes/session.routes";
 
 const app = express();
 
@@ -24,6 +25,7 @@ app.use("/api", sectionRouter);
 app.use("/api", labRouter);
 app.use("/api", routineSlotRouter);
 app.use("/api", experimentRouter);
+app.use("/api", sessionRouter);
 
 app.listen(env.PORT, () => {
   console.log(`LabLink API listening on port ${env.PORT}`);

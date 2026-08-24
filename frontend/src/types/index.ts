@@ -298,3 +298,61 @@ export interface ExperimentListResponse {
   page: number;
   limit: number;
 }
+
+export type SessionStatus = "SCHEDULED" | "RUNNING" | "COMPLETED" | "CANCELLED";
+
+export interface SessionLab {
+  id: string;
+  name: string;
+  roomNo: string;
+}
+
+export interface SessionSection {
+  id: string;
+  name: string;
+  semester: string;
+  studentCount: number;
+  instructorId: string | null;
+  course: ExperimentCourse;
+}
+
+export interface SessionRoutineSlot {
+  id: string;
+  dayOfWeek: number;
+  startTime: string;
+  endTime: string;
+  lab: SessionLab;
+  section: SessionSection;
+}
+
+export interface SessionExperiment {
+  id: string;
+  number: number;
+  title: string;
+}
+
+export interface ClassSession {
+  id: string;
+  routineSlotId: string;
+  date: string;
+  startsAt: string;
+  endsAt: string;
+  experimentId: string | null;
+  status: SessionStatus;
+  routineSlot: SessionRoutineSlot;
+  experiment: SessionExperiment | null;
+}
+
+export interface GenerateSessionsResult {
+  created: number;
+  horizonDays: number;
+  from: string;
+  to: string;
+}
+
+export interface SessionListResponse {
+  data: ClassSession[];
+  total: number;
+  page: number;
+  limit: number;
+}
