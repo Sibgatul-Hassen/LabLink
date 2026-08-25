@@ -25,6 +25,7 @@ function getSidebarLinks(role: Role): SidebarLink[] {
   const links: SidebarLink[] = [
     { label: "Dashboard", to: "/dashboard" },
     { label: "Components", to: "/components" },
+    { label: "Stock Management", to: "/stocks" },
     { label: "Courses", to: "/courses" },
     { label: "Sections", to: "/sections" },
     { label: "Labs", to: "/labs" },
