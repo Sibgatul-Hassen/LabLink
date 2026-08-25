@@ -1,0 +1,116 @@
+name: LabLink CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - "feature/**"
+
+  pull_request:
+    branches:
+      - main
+      - develop
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend CI
+    runs-on: ubuntu-latest
+
+    env:
+      DATABASE_URL: postgresql://lablink:lablink@localhost:5432/lablink?schema=public
+      JWT_SECRET: ci-test-secret
+      PORT: 5000
+      NODE_ENV: test
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+
+        env:
+          POSTGRES_USER: lablink
+          POSTGRES_PASSWORD: lablink
+          POSTGRES_DB: lablink
+
+        ports:
+          - 5432:5432
+
+        options: >-
+          --health-cmd="pg_isready -U lablink -d lablink"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "20.19.0"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Generate Prisma Client
+        working-directory: backend
+        run: npx prisma generate
+
+      - name: Apply database migrations
+        working-directory: backend
+        run: npx prisma migrate deploy
+
+      - name: Backend lint and type check
+        working-directory: backend
+        run: npm run lint
+
+      - name: Run backend tests
+        working-directory: backend
+        run: npm test -- --runInBand
+
+      - name: Build backend
+        working-directory: backend
+        run: npm run build
+
+  frontend:
+    name: Frontend CI
+    runs-on: ubuntu-latest
+
+    env:
+      VITE_API_URL: http://localhost:5000
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "20.19.0"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Frontend lint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Frontend TypeScript check
+        working-directory: frontend
+        run: npx tsc --noEmit
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
