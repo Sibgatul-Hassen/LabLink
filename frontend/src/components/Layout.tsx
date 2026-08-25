@@ -12,8 +12,17 @@ interface SidebarLink {
   to: string;
 }
 
+// Explicit role list, never a rank — CENTRAL_STORE_OFFICER has university-wide
+// data scope but low approval authority, so ordering roles would be wrong.
+const PLANNING_ROLES: Role[] = [
+  "DEPT_STORE_HEAD",
+  "CENTRAL_STORE_OFFICER",
+  "OFFICE_ADMIN",
+  "SYSTEM_ADMIN",
+];
+
 function getSidebarLinks(role: Role): SidebarLink[] {
-  const basicLinks: SidebarLink[] = [
+  const links: SidebarLink[] = [
     { label: "Dashboard", to: "/dashboard" },
     { label: "Components", to: "/components" },
     { label: "Courses", to: "/courses" },
@@ -24,15 +33,18 @@ function getSidebarLinks(role: Role): SidebarLink[] {
     { label: "Class Sessions", to: "/sessions" },
   ];
 
-  if (role === "SYSTEM_ADMIN") {
-    return [
-      ...basicLinks,
-      { label: "Departments", to: "/departments" },
-      { label: "Users", to: "/users" },
-    ];
+  if (PLANNING_ROLES.includes(role)) {
+    links.push({ label: "Peak Class Load", to: "/peak-classes" });
   }
 
-  return basicLinks;
+  if (role === "SYSTEM_ADMIN") {
+    links.push(
+      { label: "Departments", to: "/departments" },
+      { label: "Users", to: "/users" },
+    );
+  }
+
+  return links;
 }
 
 function formatRole(role: Role): string {

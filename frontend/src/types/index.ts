@@ -356,3 +356,33 @@ export interface SessionListResponse {
   page: number;
   limit: number;
 }
+
+export interface PeakSessionSummary {
+  id: string;
+  date: string;
+  startsAt: string;
+  endsAt: string;
+  courseCode: string;
+  sectionName: string;
+  labName: string;
+  roomNo: string;
+  studentCount: number;
+  groupSize: number;
+  groups: number;
+}
+
+export interface DepartmentPeak {
+  department: CourseDepartment;
+  totalSessions: number;
+  peak: number;
+  peakAt: string | null;
+  peakSessions: PeakSessionSummary[];
+  peakGroups: number;
+  peakGroupsAt: string | null;
+}
+
+export interface PeakClassesResponse {
+  data: DepartmentPeak[];
+  from: string | null;
+  to: string | null;
+}
