@@ -5,6 +5,7 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Components from "./pages/Components";
+import Stocks from "./pages/Stocks";
 import Departments from "./pages/Departments";
 import Courses from "./pages/Courses";
 import Sections from "./pages/Sections";
@@ -24,6 +25,17 @@ export default function App() {
           <ProtectedRoute>
             <Layout>
               <Dashboard />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/stocks"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <Stocks />
             </Layout>
           </ProtectedRoute>
         }
