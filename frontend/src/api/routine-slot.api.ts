@@ -1,6 +1,7 @@
 import { apiClient } from "./client";
 import type {
   CreateRoutineSlotRequest,
+  ImportRoutineSlotsResult,
   RoutineSlot,
   RoutineSlotListResponse,
   UpdateRoutineSlotRequest,
@@ -62,4 +63,21 @@ export async function updateRoutineSlot(
 
 export async function deleteRoutineSlot(id: string): Promise<void> {
   await apiClient.delete(`/api/routine-slots/${id}`);
+}
+
+interface ImportResponse {
+  data: ImportRoutineSlotsResult;
+}
+
+// Returns 200 with mixed per-row results, so a rejected promise here means the
+// file itself was unusable — not that individual rows failed.
+export async function importRoutineSlots(
+  csv: string,
+): Promise<ImportRoutineSlotsResult> {
+  const response = await apiClient.post<ImportResponse>(
+    "/api/routine-slots/import",
+    { csv },
+  );
+
+  return response.data.data;
 }

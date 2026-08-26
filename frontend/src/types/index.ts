@@ -386,3 +386,24 @@ export interface PeakClassesResponse {
   from: string | null;
   to: string | null;
 }
+
+export type ImportRowStatus = "created" | "skipped" | "failed";
+
+export interface ImportRowResult {
+  line: number;
+  status: ImportRowStatus;
+  courseCode?: string;
+  sectionName?: string;
+  roomNo?: string;
+  message?: string;
+  warning?: string;
+}
+
+export interface ImportRoutineSlotsResult {
+  total: number;
+  created: number;
+  skipped: number;
+  failed: number;
+  warnings: number;
+  rows: ImportRowResult[];
+}

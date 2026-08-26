@@ -3,11 +3,16 @@ import { ZodError } from "zod";
 
 import { requireAuth } from "../middleware/auth";
 import { requireRole } from "../middleware/rbac";
+import { importRoutineSlotsSchema } from "../schemas/routine-import.schema";
 import {
   createRoutineSlotSchema,
   listRoutineSlotsQuerySchema,
   updateRoutineSlotSchema,
 } from "../schemas/routine-slot.schema";
+import {
+  CsvFormatError,
+  RoutineImportService,
+} from "../services/routine-import.service";
 import { RoutineSlotService } from "../services/routine-slot.service";
 import { AuthenticatedRequest } from "../types";
 
@@ -18,6 +23,12 @@ function handleRoutineSlotError(error: unknown, res: Response): void {
     res
       .status(400)
       .json({ error: error.issues[0]?.message ?? "Invalid request" });
+    return;
+  }
+
+  // A problem with the file itself, as opposed to a problem with one row.
+  if (error instanceof CsvFormatError) {
+    res.status(400).json({ error: error.message });
     return;
   }
 
@@ -134,6 +145,26 @@ router.delete(
     try {
       await RoutineSlotService.deleteRoutineSlot(req.params.id);
       res.status(204).send();
+    } catch (error) {
+      handleRoutineSlotError(error, res);
+    }
+  },
+);
+
+// ─────────────── CSV import ───────────────
+
+// Returns 200 even when individual rows fail. A partially successful import is
+// a successful request reporting mixed results; a 400 would imply nothing was
+// written, which would be false. Only a malformed file itself gives 400.
+router.post(
+  "/routine-slots/import",
+  requireAuth,
+  requireRole("SYSTEM_ADMIN"),
+  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const { csv } = importRoutineSlotsSchema.parse(req.body);
+      const result = await RoutineImportService.importRoutineSlots(csv);
+      res.status(200).json({ data: result });
     } catch (error) {
       handleRoutineSlotError(error, res);
     }
