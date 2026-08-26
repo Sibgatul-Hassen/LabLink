@@ -8,10 +8,15 @@ import {
   createRoutineSlot,
   deleteRoutineSlot,
   getRoutineSlots,
+  importRoutineSlots,
   updateRoutineSlot,
 } from "../api/routine-slot.api";
 import { useAuthStore } from "../store/authStore";
-import type { CreateRoutineSlotRequest, RoutineSlot } from "../types";
+import type {
+  CreateRoutineSlotRequest,
+  ImportRoutineSlotsResult,
+  RoutineSlot,
+} from "../types";
 
 // UIU's week starts on Sunday, matching dayOfWeek 0 in the schema.
 const DAY_NAMES = [
@@ -23,6 +28,15 @@ const DAY_NAMES = [
   "Friday",
   "Saturday",
 ];
+
+const CSV_HEADER =
+  "courseCode,sectionName,semester,dayOfWeek,startTime,endTime,roomNo,effectiveFrom,effectiveTo";
+
+const STATUS_STYLES: Record<string, string> = {
+  created: "bg-green-100 text-green-700",
+  skipped: "bg-slate-200 text-slate-600",
+  failed: "bg-red-100 text-red-700",
+};
 
 interface RoutineSlotFormState {
   sectionId: string;
@@ -75,6 +89,12 @@ export default function RoutineSlots() {
   const [form, setForm] = useState<RoutineSlotFormState>(emptyForm);
   const [formError, setFormError] = useState("");
   const [deleteError, setDeleteError] = useState("");
+
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [csvText, setCsvText] = useState("");
+  const [importResult, setImportResult] =
+    useState<ImportRoutineSlotsResult | null>(null);
+  const [importError, setImportError] = useState("");
 
   const limit = 10;
   const canManage = user?.role === "SYSTEM_ADMIN";
@@ -131,6 +151,21 @@ export default function RoutineSlots() {
     },
   });
 
+  const importMutation = useMutation({
+    mutationFn: importRoutineSlots,
+    onSuccess: async (result) => {
+      setImportError("");
+      setImportResult(result);
+      await queryClient.invalidateQueries({ queryKey: ["routine-slots"] });
+    },
+    // A rejection here means the file itself was unusable. Row-level problems
+    // arrive as a successful response with failed rows inside it.
+    onError: (mutationError: unknown) => {
+      setImportResult(null);
+      setImportError(getErrorMessage(mutationError));
+    },
+  });
+
   function openCreateForm() {
     setEditingSlot(null);
     setForm(emptyForm);
@@ -160,6 +195,20 @@ export default function RoutineSlots() {
     setEditingSlot(null);
     setForm(emptyForm);
     setFormError("");
+  }
+
+  function openImport() {
+    setCsvText("");
+    setImportResult(null);
+    setImportError("");
+    setIsImportOpen(true);
+  }
+
+  function closeImport() {
+    setIsImportOpen(false);
+    setCsvText("");
+    setImportResult(null);
+    setImportError("");
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -224,6 +273,17 @@ export default function RoutineSlots() {
     deleteMutation.mutate(slot.id);
   }
 
+  function handleImport() {
+    setImportError("");
+
+    if (!csvText.trim()) {
+      setImportError("Paste some CSV content first.");
+      return;
+    }
+
+    importMutation.mutate(csvText);
+  }
+
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
@@ -238,13 +298,23 @@ export default function RoutineSlots() {
         </div>
 
         {canManage && (
-          <button
-            type="button"
-            onClick={openCreateForm}
-            className="rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700"
-          >
-            Add Routine Slot
-          </button>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={openImport}
+              className="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+            >
+              Import CSV
+            </button>
+
+            <button
+              type="button"
+              onClick={openCreateForm}
+              className="rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700"
+            >
+              Add Routine Slot
+            </button>
+          </div>
         )}
       </div>
 
@@ -450,6 +520,179 @@ export default function RoutineSlots() {
           </div>
         </div>
       </div>
+
+      {isImportOpen && canManage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+          <div className="max-h-full w-full max-w-3xl overflow-y-auto rounded-xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">
+                  Import Routine CSV
+                </h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  Paste the routine below. Each row is imported independently —
+                  one bad row will not stop the rest.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={closeImport}
+                className="text-2xl leading-none text-slate-400 transition hover:text-slate-700"
+                aria-label="Close import panel"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-5 p-6">
+              <div>
+                <label
+                  htmlFor="routine-csv"
+                  className="mb-1 block text-sm font-medium text-slate-700"
+                >
+                  CSV content
+                </label>
+
+                <textarea
+                  id="routine-csv"
+                  rows={10}
+                  value={csvText}
+                  onChange={(event) => setCsvText(event.target.value)}
+                  spellCheck={false}
+                  placeholder={`${CSV_HEADER}\nCSE 3216,A,Spring 2026,2,08:30,11:30,302,2026-08-01,2026-12-20`}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 font-mono text-xs outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
+
+              <div className="rounded-lg bg-slate-50 p-4 text-xs text-slate-600">
+                <p className="mb-1 font-semibold text-slate-800">Format</p>
+                <p className="mb-2 break-all font-mono">{CSV_HEADER}</p>
+                <ul className="list-inside list-disc space-y-1">
+                  <li>Day of week: 0 = Sunday through 6 = Saturday</li>
+                  <li>Times: 24-hour, zero padded, e.g. 08:30</li>
+                  <li>Dates: YYYY-MM-DD</li>
+                  <li>
+                    Courses, sections and rooms must already exist — the import
+                    looks them up, it does not create them
+                  </li>
+                  <li>Values containing commas are not supported</li>
+                </ul>
+              </div>
+
+              {importError && (
+                <div
+                  role="alert"
+                  className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"
+                >
+                  {importError}
+                </div>
+              )}
+
+              {importResult && (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap gap-3">
+                    <span className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm text-slate-700">
+                      {importResult.total} row
+                      {importResult.total === 1 ? "" : "s"}
+                    </span>
+                    <span className="rounded-lg bg-green-100 px-3 py-1.5 text-sm font-medium text-green-700">
+                      {importResult.created} created
+                    </span>
+                    <span className="rounded-lg bg-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600">
+                      {importResult.skipped} skipped
+                    </span>
+                    <span className="rounded-lg bg-red-100 px-3 py-1.5 text-sm font-medium text-red-700">
+                      {importResult.failed} failed
+                    </span>
+                    {importResult.warnings > 0 && (
+                      <span className="rounded-lg bg-amber-100 px-3 py-1.5 text-sm font-medium text-amber-800">
+                        {importResult.warnings} warning
+                        {importResult.warnings === 1 ? "" : "s"}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="max-h-64 overflow-y-auto rounded-lg border border-slate-200">
+                    <table className="min-w-full divide-y divide-slate-200 text-sm">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">
+                            Line
+                          </th>
+                          <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">
+                            Row
+                          </th>
+                          <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">
+                            Status
+                          </th>
+                          <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-slate-500">
+                            Detail
+                          </th>
+                        </tr>
+                      </thead>
+
+                      <tbody className="divide-y divide-slate-100 bg-white">
+                        {importResult.rows.map((row) => (
+                          <tr key={row.line}>
+                            <td className="whitespace-nowrap px-4 py-2 text-slate-500">
+                              {row.line}
+                            </td>
+                            <td className="px-4 py-2 text-slate-700">
+                              {row.courseCode ?? "—"}
+                              {row.sectionName ? ` · ${row.sectionName}` : ""}
+                              {row.roomNo ? (
+                                <span className="text-xs text-slate-500">
+                                  {" "}
+                                  · Room {row.roomNo}
+                                </span>
+                              ) : null}
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-2">
+                              <span
+                                className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${STATUS_STYLES[row.status]}`}
+                              >
+                                {row.status}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2 text-slate-600">
+                              {row.message}
+                              {row.warning && (
+                                <div className="mt-1 text-xs text-amber-700">
+                                  {row.warning}
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
+                <button
+                  type="button"
+                  onClick={closeImport}
+                  className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                >
+                  Close
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleImport}
+                  disabled={importMutation.isPending}
+                  className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {importMutation.isPending ? "Importing..." : "Import"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isFormOpen && canManage && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
