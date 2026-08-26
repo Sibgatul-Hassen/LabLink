@@ -386,7 +386,6 @@ export interface PeakClassesResponse {
   from: string | null;
   to: string | null;
 }
-
 export type ImportRowStatus = "created" | "skipped" | "failed";
 
 export interface ImportRowResult {
@@ -406,4 +405,75 @@ export interface ImportRoutineSlotsResult {
   failed: number;
   warnings: number;
   rows: ImportRowResult[];
+}
+
+export type MovementType =
+  | "PURCHASE"
+  | "TRANSFER"
+  | "ISSUE"
+  | "RETURN"
+  | "USED_UP"
+  | "DAMAGED"
+  | "LOST"
+  | "REPAIRED"
+  | "ADJUST";
+
+export interface Stock {
+  id: string;
+  componentId: string;
+  onHand: number;
+  spareQty: number;
+  reorderPoint: number;
+  updatedAt: string;
+  component: Component;
+}
+
+export interface StockListResponse {
+  data: Stock[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface StockMovementPerformedBy {
+  id: string;
+  fullName: string;
+  email: string;
+  role: User["role"];
+}
+
+export interface StockMovement {
+  id: string;
+  componentId: string;
+  qty: number;
+  type: MovementType;
+  fromDeptId: string | null;
+  toDeptId: string | null;
+  refType: string | null;
+  refId: string | null;
+  performedById: string;
+  note: string | null;
+  createdAt: string;
+  performedBy: StockMovementPerformedBy;
+}
+
+export interface StockMovementListResponse {
+  data: StockMovement[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface AdjustStockRequest {
+  qty: number;
+  note?: string;
+}
+
+export interface AdjustStockResponse {
+  stock: Stock;
+  movement: StockMovement;
+}
+
+export interface UpdateReorderPointRequest {
+  reorderPoint: number;
 }

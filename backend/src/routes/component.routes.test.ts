@@ -19,6 +19,16 @@ const testEmails = ["central@test.com", "admin@test.com", "student@test.com"];
 const testComponentCodes = ["TEST-001", "TEST-DENY"];
 
 async function cleanupTestData() {
+  await prisma.stock.deleteMany({
+    where: {
+      component: {
+        code: {
+          in: testComponentCodes,
+        },
+      },
+    },
+  });
+
   await prisma.component.deleteMany({
     where: {
       code: {
@@ -120,6 +130,10 @@ describe("Component CRUD API Integration Tests", () => {
       expect(res.status).toBe(201);
       expect(res.body.data.code).toBe("TEST-001");
       expect(res.body.data.name).toBe("Test Component");
+      expect(res.body.data.stock).toBeTruthy();
+      expect(res.body.data.stock.onHand).toBe(0);
+      expect(res.body.data.stock.spareQty).toBe(0);
+      expect(res.body.data.stock.reorderPoint).toBe(0);
 
       componentId = res.body.data.id;
     });

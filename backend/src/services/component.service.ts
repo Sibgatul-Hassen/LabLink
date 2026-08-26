@@ -38,6 +38,13 @@ export class ComponentService {
         description: data.description,
         isReturnable: data.isReturnable,
         isActive: true,
+        stock: {
+          create: {
+            onHand: 0,
+            spareQty: 0,
+            reorderPoint: 0,
+          },
+        },
       },
       include: { stock: true },
     });
