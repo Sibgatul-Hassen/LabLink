@@ -2,8 +2,11 @@ import { apiClient } from "./client";
 import type {
   Component,
   ComponentListResponse,
+  ComponentSubstituteListResponse,
   CreateComponentRequest,
+  CreateComponentSubstituteRequest,
   UpdateComponentRequest,
+  UpdateComponentSubstituteRequest,
 } from "../types";
 
 interface ComponentResponse {
@@ -59,6 +62,52 @@ export async function updateComponent(
   );
 
   return response.data.data;
+}
+
+export async function getComponentSubstitutes(
+  componentId: string,
+): Promise<ComponentSubstituteListResponse> {
+  const response = await apiClient.get<ComponentSubstituteListResponse>(
+    `/api/components/${componentId}/substitutes`,
+  );
+
+  return response.data;
+}
+
+export async function addComponentSubstitute(
+  componentId: string,
+  data: CreateComponentSubstituteRequest,
+): Promise<ComponentSubstituteListResponse> {
+  const response = await apiClient.post<ComponentSubstituteListResponse>(
+    `/api/components/${componentId}/substitutes`,
+    data,
+  );
+
+  return response.data;
+}
+
+export async function updateComponentSubstitute(
+  componentId: string,
+  subId: string,
+  data: UpdateComponentSubstituteRequest,
+): Promise<ComponentSubstituteListResponse> {
+  const response = await apiClient.patch<ComponentSubstituteListResponse>(
+    `/api/components/${componentId}/substitutes/${subId}`,
+    data,
+  );
+
+  return response.data;
+}
+
+export async function deleteComponentSubstitute(
+  componentId: string,
+  subId: string,
+): Promise<ComponentSubstituteListResponse> {
+  const response = await apiClient.delete<ComponentSubstituteListResponse>(
+    `/api/components/${componentId}/substitutes/${subId}`,
+  );
+
+  return response.data;
 }
 
 export async function deleteComponent(id: string): Promise<void> {
