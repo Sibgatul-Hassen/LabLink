@@ -12,41 +12,48 @@ interface SidebarLink {
   to: string;
 }
 
-// Explicit role list, never a rank — CENTRAL_STORE_OFFICER has university-wide
-// data scope but low approval authority, so ordering roles would be wrong.
-const PLANNING_ROLES: Role[] = [
-  "DEPT_STORE_HEAD",
-  "CENTRAL_STORE_OFFICER",
-  "OFFICE_ADMIN",
-  "SYSTEM_ADMIN",
+// Links every authenticated role sees, regardless of role-specific extras below.
+const COMMON_LINKS: SidebarLink[] = [
+  { label: "Dashboard", to: "/dashboard" },
+  { label: "Components", to: "/components" },
+  { label: "Stock Management", to: "/stocks" },
+  { label: "Department Quotas", to: "/quotas" },
+  { label: "Courses", to: "/courses" },
+  { label: "Sections", to: "/sections" },
+  { label: "Labs", to: "/labs" },
+  { label: "Routine Slots", to: "/routine-slots" },
+  { label: "Experiments", to: "/experiments" },
+  { label: "Class Sessions", to: "/sessions" },
 ];
 
+const PEAK_CLASS_LOAD_LINK: SidebarLink = {
+  label: "Peak Class Load",
+  to: "/peak-classes",
+};
+
+const DEPARTMENTS_LINK: SidebarLink = { label: "Departments", to: "/departments" };
+const USERS_LINK: SidebarLink = { label: "Users", to: "/users" };
+
+// Explicit per-role link lists, never a rank — CENTRAL_STORE_OFFICER has
+// university-wide data scope but low approval authority, so ordering roles
+// on a single scale (and deriving access from that rank) would be wrong.
+const SIDEBAR_LINKS_BY_ROLE: Record<Role, SidebarLink[]> = {
+  STUDENT: [...COMMON_LINKS],
+  INSTRUCTOR: [...COMMON_LINKS],
+  LAB_ASSISTANT: [...COMMON_LINKS],
+  DEPT_STORE_HEAD: [...COMMON_LINKS, PEAK_CLASS_LOAD_LINK],
+  CENTRAL_STORE_OFFICER: [...COMMON_LINKS, PEAK_CLASS_LOAD_LINK],
+  OFFICE_ADMIN: [...COMMON_LINKS, PEAK_CLASS_LOAD_LINK],
+  SYSTEM_ADMIN: [
+    ...COMMON_LINKS,
+    PEAK_CLASS_LOAD_LINK,
+    DEPARTMENTS_LINK,
+    USERS_LINK,
+  ],
+};
+
 function getSidebarLinks(role: Role): SidebarLink[] {
-  const links: SidebarLink[] = [
-    { label: "Dashboard", to: "/dashboard" },
-    { label: "Components", to: "/components" },
-    { label: "Stock Management", to: "/stocks" },
-    { label: "Department Quotas", to: "/quotas" },
-    { label: "Courses", to: "/courses" },
-    { label: "Sections", to: "/sections" },
-    { label: "Labs", to: "/labs" },
-    { label: "Routine Slots", to: "/routine-slots" },
-    { label: "Experiments", to: "/experiments" },
-    { label: "Class Sessions", to: "/sessions" },
-  ];
-
-  if (PLANNING_ROLES.includes(role)) {
-    links.push({ label: "Peak Class Load", to: "/peak-classes" });
-  }
-
-  if (role === "SYSTEM_ADMIN") {
-    links.push(
-      { label: "Departments", to: "/departments" },
-      { label: "Users", to: "/users" },
-    );
-  }
-
-  return links;
+  return SIDEBAR_LINKS_BY_ROLE[role] ?? COMMON_LINKS;
 }
 
 function formatRole(role: Role): string {

@@ -15,6 +15,7 @@ import RoutineSlots from "./pages/RoutineSlots";
 import Experiments from "./pages/Experiments";
 import ClassSessions from "./pages/ClassSessions";
 import PeakClasses from "./pages/PeakClasses";
+import Users from "./pages/Users";
 
 export default function App() {
   return (
@@ -148,6 +149,17 @@ export default function App() {
           <ProtectedRoute>
             <Layout>
               <PeakClasses />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/users"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <Users />
             </Layout>
           </ProtectedRoute>
         }
