@@ -6,6 +6,7 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Components from "./pages/Components";
 import Stocks from "./pages/Stocks";
+import Quotas from "./pages/Quotas";
 import Departments from "./pages/Departments";
 import Courses from "./pages/Courses";
 import Sections from "./pages/Sections";
@@ -37,6 +38,17 @@ export default function App() {
           <ProtectedRoute>
             <Layout>
               <Stocks />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/quotas"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <Quotas />
             </Layout>
           </ProtectedRoute>
         }
