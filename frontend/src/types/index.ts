@@ -477,3 +477,54 @@ export interface AdjustStockResponse {
 export interface UpdateReorderPointRequest {
   reorderPoint: number;
 }
+
+export interface DepartmentQuota {
+  id: string;
+  departmentId: string;
+  componentId: string;
+  qty: number;
+  suggestedQty: number;
+  confirmedAt: string | null;
+  updatedAt: string;
+  department: Department;
+  component: Component;
+}
+
+export interface DepartmentQuotaListResponse {
+  data: DepartmentQuota[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface QuotaHistoryChangedBy {
+  id: string;
+  fullName: string;
+  email: string;
+  role: User["role"];
+}
+
+export interface QuotaHistoryEntry {
+  id: string;
+  departmentId: string;
+  componentId: string;
+  oldQty: number;
+  newQty: number;
+  reason: string;
+  changedById: string;
+  createdAt: string;
+  changedBy: QuotaHistoryChangedBy | null;
+}
+
+export interface QuotaHistoryListResponse {
+  data: QuotaHistoryEntry[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface UpdateQuotaRequest {
+  qty?: number;
+  suggestedQty?: number;
+  reason?: string;
+}
