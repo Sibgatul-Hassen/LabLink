@@ -559,3 +559,44 @@ export interface UpdateQuotaRequest {
   suggestedQty?: number;
   reason?: string;
 }
+
+export interface UserAccountDepartment {
+  id: string;
+  code: string;
+  name: string;
+}
+
+export interface UserAccount {
+  id: string;
+  email: string;
+  fullName: string;
+  role: Role;
+  departmentId: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  department: UserAccountDepartment | null;
+}
+
+export interface CreateUserRequest {
+  email: string;
+  password: string;
+  fullName: string;
+  role: Role;
+  departmentId?: string | null;
+}
+
+export type UpdateUserRequest = Partial<Omit<CreateUserRequest, "password">> & {
+  isActive?: boolean;
+};
+
+export interface ChangePasswordRequest {
+  password: string;
+}
+
+export interface UserListResponse {
+  data: UserAccount[];
+  total: number;
+  page: number;
+  limit: number;
+}

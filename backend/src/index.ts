@@ -14,6 +14,7 @@ import sessionRouter from "./routes/session.routes";
 import analyticsRouter from "./routes/analytics.routes";
 import stockRouter from "./routes/stock.routes";
 import quotaRouter from "./routes/quota.routes";
+import userRouter from "./routes/user.routes";
 import availabilityRouter from "./routes/availability.routes";
 
 const app = express();
@@ -33,6 +34,7 @@ app.use("/api", sessionRouter);
 app.use("/api", analyticsRouter);
 app.use("/api", stockRouter);
 app.use("/api", quotaRouter);
+app.use("/api", userRouter);
 app.use("/api", availabilityRouter);
 
 app.listen(env.PORT, () => {
