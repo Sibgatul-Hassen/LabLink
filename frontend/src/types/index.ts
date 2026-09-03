@@ -474,6 +474,37 @@ export interface AdjustStockResponse {
   movement: StockMovement;
 }
 
+export interface SubstituteComponent {
+  id: string;
+  code: string;
+  name: string;
+}
+
+export interface ComponentSubstitute {
+  id: string;
+  originalId: string;
+  substituteId: string;
+  ratio: number;
+  notes: string | null;
+  approvedById: string | null;
+  createdAt: string;
+  substitute: SubstituteComponent;
+}
+
+export interface CreateComponentSubstituteRequest {
+  substituteId: string;
+  ratio?: number;
+  notes?: string | null;
+}
+
+export type UpdateComponentSubstituteRequest = Partial<
+  Pick<CreateComponentSubstituteRequest, "ratio" | "notes">
+>;
+
+export interface ComponentSubstituteListResponse {
+  data: ComponentSubstitute[];
+}
+
 export interface UpdateReorderPointRequest {
   reorderPoint: number;
 }
