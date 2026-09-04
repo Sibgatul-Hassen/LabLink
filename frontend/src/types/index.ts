@@ -600,3 +600,109 @@ export interface UserListResponse {
   page: number;
   limit: number;
 }
+
+export type RequisitionType = "CLASS" | "PERSONAL" | "MAINTENANCE";
+
+export type RequisitionOrigin =
+  | "AUTO_DRAFT"
+  | "LAB_ASSISTANT"
+  | "INSTRUCTOR_LIVE";
+
+export type RequisitionStatus =
+  | "DRAFT"
+  | "SUBMITTED"
+  | "READY"
+  | "AWAITING_BORROW"
+  | "AWAITING_PURCHASE"
+  | "ISSUED"
+  | "RETURNED"
+  | "REJECTED"
+  | "CANCELLED";
+
+export interface RequisitionLineComponent {
+  id: string;
+  code: string;
+  name: string;
+  unit: string;
+  sizeClass: "EXPENSIVE" | "SMALL";
+}
+
+export interface RequisitionLine {
+  id: string;
+  requisitionId: string;
+  componentId: string;
+  qtyNeeded: number;
+  // Written by the resolver in task 3.4 — zero until then.
+  qtyOwnQuota: number;
+  qtySubstitute: number;
+  qtySpare: number;
+  qtyBorrowed: number;
+  qtyShort: number;
+  // Written by issue and return in Stage 4.
+  qtyIssued: number;
+  qtyReturnedGood: number;
+  qtyDamaged: number;
+  qtyLost: number;
+  qtyUsedUp: number;
+  component: RequisitionLineComponent;
+}
+
+export interface RequisitionClassSession {
+  id: string;
+  date: string;
+  startsAt: string;
+  endsAt: string;
+  routineSlot: {
+    lab: { id: string; name: string; roomNo: string; groupSize: number };
+    section: {
+      id: string;
+      name: string;
+      studentCount: number;
+      course: ExperimentCourse;
+    };
+  };
+  experiment: SessionExperiment | null;
+}
+
+export interface Requisition {
+  id: string;
+  type: RequisitionType;
+  origin: RequisitionOrigin;
+  classSessionId: string | null;
+  requestedById: string;
+  departmentId: string;
+  neededFrom: string;
+  neededTo: string;
+  status: RequisitionStatus;
+  createdAt: string;
+  updatedAt: string;
+  requestedBy: SectionUser;
+  department: CourseDepartment;
+  classSession: RequisitionClassSession | null;
+  lines: RequisitionLine[];
+}
+
+export interface CreateRequisitionLineInput {
+  componentId: string;
+  qtyNeeded: number;
+}
+
+export interface CreateRequisitionRequest {
+  type: RequisitionType;
+  classSessionId?: string;
+  neededFrom?: string;
+  neededTo?: string;
+  lines?: CreateRequisitionLineInput[];
+}
+
+export interface UpdateRequisitionRequest {
+  neededFrom?: string;
+  neededTo?: string;
+}
+
+export interface RequisitionListResponse {
+  data: Requisition[];
+  total: number;
+  page: number;
+  limit: number;
+}

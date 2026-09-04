@@ -16,6 +16,7 @@ import stockRouter from "./routes/stock.routes";
 import quotaRouter from "./routes/quota.routes";
 import userRouter from "./routes/user.routes";
 import availabilityRouter from "./routes/availability.routes";
+import requisitionRouter from "./routes/requisition.routes";
 
 const app = express();
 
@@ -36,6 +37,7 @@ app.use("/api", stockRouter);
 app.use("/api", quotaRouter);
 app.use("/api", userRouter);
 app.use("/api", availabilityRouter);
+app.use("/api", requisitionRouter);
 
 app.listen(env.PORT, () => {
   console.log(`LabLink API listening on port ${env.PORT}`);
