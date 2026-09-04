@@ -24,6 +24,7 @@ const COMMON_LINKS: SidebarLink[] = [
   { label: "Routine Slots", to: "/routine-slots" },
   { label: "Experiments", to: "/experiments" },
   { label: "Class Sessions", to: "/sessions" },
+  { label: "Requisitions", to: "/requisitions" },
 ];
 
 const PEAK_CLASS_LOAD_LINK: SidebarLink = {
@@ -31,7 +32,10 @@ const PEAK_CLASS_LOAD_LINK: SidebarLink = {
   to: "/peak-classes",
 };
 
-const DEPARTMENTS_LINK: SidebarLink = { label: "Departments", to: "/departments" };
+const DEPARTMENTS_LINK: SidebarLink = {
+  label: "Departments",
+  to: "/departments",
+};
 const USERS_LINK: SidebarLink = { label: "Users", to: "/users" };
 
 // Explicit per-role link lists, never a rank — CENTRAL_STORE_OFFICER has
