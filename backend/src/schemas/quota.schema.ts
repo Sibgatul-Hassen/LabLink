@@ -40,3 +40,24 @@ export type UpdateQuotaRequest = z.infer<typeof updateQuotaSchema>;
 export type ListQuotaHistoryQuery = z.infer<
   typeof listQuotaHistoryQuerySchema
 >;
+
+export const generateQuotaSuggestionsSchema = z
+  .object({
+    departmentId: z.string().trim().min(1, "Department is required"),
+    from: z.coerce.date().optional(),
+    to: z.coerce.date().optional(),
+  })
+  .refine(
+    (data) =>
+      !data.from ||
+      !data.to ||
+      data.from.getTime() <= data.to.getTime(),
+    {
+      message: "From date must be on or before to date",
+      path: ["to"],
+    },
+  );
+
+export type GenerateQuotaSuggestionsRequest = z.infer<
+  typeof generateQuotaSuggestionsSchema
+>;
