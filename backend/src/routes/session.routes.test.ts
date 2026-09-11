@@ -452,4 +452,202 @@ describe("Class Session API Integration Tests", () => {
       expect(res.body.data.experiment).toBeNull();
     });
   });
+
+  describe("DRAFT REQUISITION - POST /api/sessions/:id/draft-requisition", () => {
+    const draftDeptCode = "TEST-SESS-DRAFT";
+    const draftCourseCode = "TEST-SESS-DRAFT-COURSE";
+    const draftComponentCode = "TEST-SESS-DRAFT-COMP";
+    const draftEmail = "sess-draft-labasst@test.com";
+
+    let draftDeptId: string;
+    let draftSessionId: string;
+    let draftLabAsstToken: string;
+
+    beforeAll(async () => {
+      const department = await prisma.department.create({
+        data: {
+          code: draftDeptCode,
+          name: "Session Draft Test Dept",
+          isOffice: false,
+        },
+      });
+      draftDeptId = department.id;
+
+      const hashedPassword = await bcryptjs.hash("test123", 10);
+
+      await prisma.user.create({
+        data: {
+          email: draftEmail,
+          passwordHash: hashedPassword,
+          fullName: "Session Draft Lab Assistant",
+          role: "LAB_ASSISTANT",
+          departmentId: draftDeptId,
+        },
+      });
+
+      const draftLogin = await request(app)
+        .post("/api/auth/login")
+        .send({ email: draftEmail, password: "test123" });
+      expect(draftLogin.status).toBe(200);
+      draftLabAsstToken = draftLogin.body.token;
+
+      const course = await prisma.course.create({
+        data: {
+          code: draftCourseCode,
+          title: "Draft Test Course",
+          departmentId: draftDeptId,
+        },
+      });
+
+      // 36 students over a group size of 4 is 9 groups — deliberately not a
+      // multiple of 10, so the ×1.1 buffer does not land on a whole number
+      // and genuinely exercises the round-up.
+      const section = await prisma.section.create({
+        data: {
+          courseId: course.id,
+          name: "DRAFT-A",
+          semester: "Spring 2026",
+          studentCount: 36,
+        },
+      });
+
+      const lab = await prisma.lab.create({
+        data: {
+          name: "Draft Test Lab",
+          roomNo: "TEST-SESS-DRAFT-LAB",
+          groupSize: 4,
+          departmentId: draftDeptId,
+        },
+      });
+
+      const slot = await prisma.routineSlot.create({
+        data: {
+          sectionId: section.id,
+          labId: lab.id,
+          dayOfWeek: today.getUTCDay(),
+          startTime: "09:00",
+          endTime: "12:00",
+          effectiveFrom: addUtcDays(today, -30),
+          effectiveTo: addUtcDays(today, 60),
+        },
+      });
+
+      const dateOnly = today.toISOString().slice(0, 10);
+
+      const session = await prisma.classSession.create({
+        data: {
+          routineSlotId: slot.id,
+          date: today,
+          startsAt: new Date(`${dateOnly}T09:00:00.000Z`),
+          endsAt: new Date(`${dateOnly}T12:00:00.000Z`),
+        },
+      });
+      draftSessionId = session.id;
+
+      const component = await prisma.component.create({
+        data: {
+          code: draftComponentCode,
+          name: "Draft Test Component",
+          category: "Test",
+          sizeClass: "SMALL",
+        },
+      });
+
+      const experiment = await prisma.experiment.create({
+        data: {
+          courseId: course.id,
+          number: 1,
+          title: "Draft Test Experiment",
+        },
+      });
+
+      await prisma.experimentItem.create({
+        data: {
+          experimentId: experiment.id,
+          componentId: component.id,
+          qtyPerGroup: 3,
+        },
+      });
+
+      const assign = await request(app)
+        .patch(`/api/sessions/${draftSessionId}/experiment`)
+        .set("Authorization", `Bearer ${systemAdminToken}`)
+        .send({ experimentId: experiment.id });
+      expect(assign.status).toBe(200);
+    });
+
+    afterAll(async () => {
+      await prisma.allocation.deleteMany({
+        where: {
+          requisitionLine: { component: { code: draftComponentCode } },
+        },
+      });
+      await prisma.requisitionLine.deleteMany({
+        where: { component: { code: draftComponentCode } },
+      });
+      await prisma.requisition.deleteMany({
+        where: { classSessionId: draftSessionId },
+      });
+      await prisma.classSession.deleteMany({ where: { id: draftSessionId } });
+      await prisma.routineSlot.deleteMany({
+        where: { lab: { department: { code: draftDeptCode } } },
+      });
+      await prisma.experimentItem.deleteMany({
+        where: { component: { code: draftComponentCode } },
+      });
+      await prisma.experiment.deleteMany({
+        where: { course: { code: draftCourseCode } },
+      });
+      await prisma.section.deleteMany({
+        where: { course: { code: draftCourseCode } },
+      });
+      await prisma.lab.deleteMany({
+        where: { department: { code: draftDeptCode } },
+      });
+      await prisma.course.deleteMany({ where: { code: draftCourseCode } });
+      await prisma.component.deleteMany({ where: { code: draftComponentCode } });
+      await prisma.user.deleteMany({ where: { email: draftEmail } });
+      await prisma.department.deleteMany({ where: { code: draftDeptCode } });
+    });
+
+    it("should reject unauthenticated requests", async () => {
+      const res = await request(app).post(
+        `/api/sessions/${draftSessionId}/draft-requisition`,
+      );
+
+      expect(res.status).toBe(401);
+    });
+
+    it("should deny CENTRAL_STORE_OFFICER from drafting", async () => {
+      const res = await request(app)
+        .post(`/api/sessions/${draftSessionId}/draft-requisition`)
+        .set("Authorization", `Bearer ${centralStoreToken}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it("should draft a CLASS requisition with qty = ceil(groups × qtyPerGroup × 1.1)", async () => {
+      const res = await request(app)
+        .post(`/api/sessions/${draftSessionId}/draft-requisition`)
+        .set("Authorization", `Bearer ${draftLabAsstToken}`);
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.type).toBe("CLASS");
+      expect(res.body.data.origin).toBe("AUTO_DRAFT");
+      expect(res.body.data.status).toBe("DRAFT");
+      expect(res.body.data.lines).toHaveLength(1);
+
+      // 36 students / groupSize 4 = 9 groups. qtyPerGroup 3 × 9 groups × 1.1
+      // = 29.7, which must round up to 30 — not truncate down to 29.
+      expect(res.body.data.lines[0].qtyNeeded).toBe(30);
+    });
+
+    it("should refuse a second draft for the same session", async () => {
+      const res = await request(app)
+        .post(`/api/sessions/${draftSessionId}/draft-requisition`)
+        .set("Authorization", `Bearer ${draftLabAsstToken}`);
+
+      expect(res.status).toBe(409);
+    });
+  });
 });

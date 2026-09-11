@@ -13,12 +13,14 @@ app.use(express.json());
 app.use("/api", authRouter);
 app.use("/api", requisitionRouter);
 
-const testDepartmentCodes = ["TEST-REQ-A", "TEST-REQ-B"];
+const testDepartmentCodes = ["TEST-REQ-A", "TEST-REQ-B", "TEST-REQ-OFFICE"];
 const testCourseCodes = ["TEST-REQ-COURSE-A", "TEST-REQ-COURSE-B"];
 const testComponentCodes = [
   "TEST-REQ-COMP-1",
   "TEST-REQ-COMP-2",
   "TEST-REQ-GONE",
+  "TEST-REQ-CONCURRENT",
+  "TEST-REQ-TIER2",
 ];
 const testEmails = [
   "req-student@test.com",
@@ -71,6 +73,14 @@ async function cleanupTestData() {
   });
   await prisma.stock.deleteMany({
     where: { component: { code: { in: testComponentCodes } } },
+  });
+  await prisma.departmentQuota.deleteMany({
+    where: {
+      OR: [
+        { component: { code: { in: testComponentCodes } } },
+        { department: { code: { in: testDepartmentCodes } } },
+      ],
+    },
   });
   await prisma.classSession.deleteMany({
     where: {
@@ -969,6 +979,294 @@ describe("Requisition CRUD API Integration Tests", () => {
 
       expect(damagedMovement).not.toBeNull();
       expect(damagedMovement?.qty).toBe(1);
+    });
+  });
+
+  describe("Submit and resolve", () => {
+    let concurrentComponentId: string;
+    let tier2ComponentId: string;
+    let officeDepartmentId: string;
+
+    beforeAll(async () => {
+      const concurrentComponent = await prisma.component.create({
+        data: {
+          code: "TEST-REQ-CONCURRENT",
+          name: "Requisition Test Concurrent Component",
+          category: "Test",
+          sizeClass: "SMALL",
+        },
+      });
+      concurrentComponentId = concurrentComponent.id;
+
+      await prisma.departmentQuota.create({
+        data: {
+          departmentId: departmentAId,
+          componentId: concurrentComponentId,
+          qty: 6,
+        },
+      });
+
+      await prisma.stock.create({
+        data: { componentId: concurrentComponentId, onHand: 6, spareQty: 0 },
+      });
+
+      const tier2Component = await prisma.component.create({
+        data: {
+          code: "TEST-REQ-TIER2",
+          name: "Requisition Test Tier 2 Component",
+          category: "Test",
+          sizeClass: "SMALL",
+        },
+      });
+      tier2ComponentId = tier2Component.id;
+
+      await prisma.stock.create({
+        data: { componentId: tier2ComponentId, onHand: 10, spareQty: 0 },
+      });
+
+      // Reuse whatever office department already exists (real seed data
+      // normally has one); only create a stand-in when none does, so this
+      // never competes with a genuine office department for the resolver's
+      // findFirst({ isOffice: true }) lookup.
+      const existingOffice = await prisma.department.findFirst({
+        where: { isOffice: true, isActive: true },
+      });
+
+      officeDepartmentId = existingOffice
+        ? existingOffice.id
+        : (
+            await prisma.department.create({
+              data: {
+                code: "TEST-REQ-OFFICE",
+                name: "Requisition Test Office",
+                isOffice: true,
+              },
+            })
+          ).id;
+
+      await prisma.departmentQuota.create({
+        data: {
+          departmentId: departmentAId,
+          componentId: tier2ComponentId,
+          qty: 2,
+        },
+      });
+
+      await prisma.departmentQuota.create({
+        data: {
+          departmentId: officeDepartmentId,
+          componentId: tier2ComponentId,
+          qty: 5,
+        },
+      });
+    });
+
+    beforeEach(clearRequisitions);
+
+    it("rejects unauthenticated submit requests", async () => {
+      const created = await create(
+        { type: "PERSONAL", ...OWN_WINDOW },
+        studentToken,
+      );
+
+      const res = await request(app).post(
+        `/api/requisitions/${created.body.data.id}/submit`,
+      );
+
+      expect(res.status).toBe(401);
+    });
+
+    it("hides another user's draft behind a 404 on submit", async () => {
+      const created = await create(
+        { type: "PERSONAL", ...OWN_WINDOW },
+        studentToken,
+      );
+
+      const res = await request(app)
+        .post(`/api/requisitions/${created.body.data.id}/submit`)
+        .set("Authorization", `Bearer ${student2Token}`);
+
+      expect(res.status).toBe(404);
+    });
+
+    it("refuses to submit anything past draft", async () => {
+      const created = await create(
+        { type: "PERSONAL", ...OWN_WINDOW },
+        studentToken,
+      );
+
+      await prisma.requisition.update({
+        where: { id: created.body.data.id },
+        data: { status: "SUBMITTED" },
+      });
+
+      const res = await request(app)
+        .post(`/api/requisitions/${created.body.data.id}/submit`)
+        .set("Authorization", `Bearer ${studentToken}`);
+
+      expect(res.status).toBe(409);
+    });
+
+    it("resolves a draft into READY when its own quota fully covers it", async () => {
+      const created = await create(
+        {
+          type: "PERSONAL",
+          ...OWN_WINDOW,
+          lines: [{ componentId: concurrentComponentId, qtyNeeded: 3 }],
+        },
+        studentToken,
+      );
+
+      const res = await request(app)
+        .post(`/api/requisitions/${created.body.data.id}/submit`)
+        .set("Authorization", `Bearer ${studentToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.status).toBe("READY");
+      expect(res.body.data.lines[0].qtyOwnQuota).toBe(3);
+      expect(res.body.data.lines[0].qtyShort).toBe(0);
+    });
+
+    it("falls back to the office department when the requester's own quota is short", async () => {
+      const created = await create(
+        {
+          type: "PERSONAL",
+          ...OWN_WINDOW,
+          lines: [{ componentId: tier2ComponentId, qtyNeeded: 5 }],
+        },
+        studentToken,
+      );
+
+      const res = await request(app)
+        .post(`/api/requisitions/${created.body.data.id}/submit`)
+        .set("Authorization", `Bearer ${studentToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.status).toBe("READY");
+      expect(res.body.data.lines[0].qtyOwnQuota).toBe(2);
+      expect(res.body.data.lines[0].qtySpare).toBe(3);
+      expect(res.body.data.lines[0].qtyShort).toBe(0);
+
+      const allocations = await prisma.allocation.findMany({
+        where: {
+          status: "HELD",
+          requisitionLine: { requisitionId: created.body.data.id },
+        },
+      });
+
+      expect(allocations).toHaveLength(2);
+      expect(
+        allocations.some(
+          (a) => a.source === "OWN_QUOTA" && a.sourceDeptId === departmentAId,
+        ),
+      ).toBe(true);
+      expect(
+        allocations.some(
+          (a) => a.source === "SPARE" && a.sourceDeptId === officeDepartmentId,
+        ),
+      ).toBe(true);
+    });
+
+    it("lands on SUBMITTED, not READY, when even the office falls short", async () => {
+      const created = await create(
+        {
+          type: "PERSONAL",
+          ...OWN_WINDOW,
+          lines: [{ componentId: tier2ComponentId, qtyNeeded: 50 }],
+        },
+        studentToken,
+      );
+
+      const res = await request(app)
+        .post(`/api/requisitions/${created.body.data.id}/submit`)
+        .set("Authorization", `Bearer ${studentToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.status).toBe("SUBMITTED");
+      expect(res.body.data.lines[0].qtyShort).toBeGreaterThan(0);
+    });
+
+    it("returns a per-line resolution breakdown", async () => {
+      const created = await create(
+        {
+          type: "PERSONAL",
+          ...OWN_WINDOW,
+          lines: [{ componentId: concurrentComponentId, qtyNeeded: 3 }],
+        },
+        studentToken,
+      );
+
+      await request(app)
+        .post(`/api/requisitions/${created.body.data.id}/submit`)
+        .set("Authorization", `Bearer ${studentToken}`);
+
+      const res = await request(app)
+        .get(`/api/requisitions/${created.body.data.id}/resolution`)
+        .set("Authorization", `Bearer ${studentToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.lines).toHaveLength(1);
+
+      const line = res.body.data.lines[0];
+      expect(line.qtyNeeded).toBe(3);
+      expect(line.qtyFromOwn).toBe(3);
+      expect(line.qtyFromOffice).toBe(0);
+      expect(line.qtyFromBorrow).toBe(0);
+      expect(line.qtyToPurchase).toBe(0);
+      expect(line.qtyShort).toBe(0);
+    });
+
+    it("prevents double-allocation when two drafts race for the last units", async () => {
+      const first = await create(
+        {
+          type: "PERSONAL",
+          ...OWN_WINDOW,
+          lines: [{ componentId: concurrentComponentId, qtyNeeded: 6 }],
+        },
+        studentToken,
+      );
+
+      const second = await create(
+        {
+          type: "PERSONAL",
+          ...OWN_WINDOW,
+          lines: [{ componentId: concurrentComponentId, qtyNeeded: 6 }],
+        },
+        student2Token,
+      );
+
+      const [res1, res2] = await Promise.all([
+        request(app)
+          .post(`/api/requisitions/${first.body.data.id}/submit`)
+          .set("Authorization", `Bearer ${studentToken}`),
+        request(app)
+          .post(`/api/requisitions/${second.body.data.id}/submit`)
+          .set("Authorization", `Bearer ${student2Token}`),
+      ]);
+
+      for (const res of [res1, res2]) {
+        // Every response is a clean win, a clean short-allocation, or a
+        // serialization conflict — never an unhandled crash.
+        expect([200, 409]).toContain(res.status);
+      }
+
+      const fullyReady = [res1, res2].filter(
+        (res) => res.status === 200 && res.body.data.status === "READY",
+      );
+
+      // Never both — that would mean 12 units were allocated from a 6-unit
+      // pool. This is the actual guarantee task 4.7 exists to provide.
+      expect(fullyReady.length).toBe(1);
+
+      const totalHeld = await prisma.allocation.aggregate({
+        where: {
+          status: "HELD",
+          requisitionLine: { componentId: concurrentComponentId },
+        },
+        _sum: { qty: true },
+      });
+
+      expect(totalHeld._sum.qty ?? 0).toBeLessThanOrEqual(6);
     });
   });
 });

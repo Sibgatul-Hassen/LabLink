@@ -1,6 +1,17 @@
-import { Prisma, Role } from "@prisma/client";
+import {
+  Allocation,
+  AllocationSource,
+  Prisma,
+  RequisitionLine,
+  Role,
+} from "@prisma/client";
 
 import { prisma } from "../lib/prisma";
+import {
+  AvailabilityQueryClient,
+  AvailabilityService,
+  AvailabilityWindow,
+} from "./availability.service";
 import {
   CreateRequisitionLineRequest,
   CreateRequisitionRequest,
@@ -9,6 +20,41 @@ import {
   UpdateRequisitionLineRequest,
   UpdateRequisitionRequest,
 } from "../schemas/requisition.schema";
+
+/**
+ * Stage 4 resolves a requisition in tiers, each backed by a real RequisitionLine
+ * column and a real AllocationSource value — except two the task brief named
+ * that don't exist on this schema, so here is the mapping actually implemented:
+ *
+ *   - RequisitionStatus has no PARTIALLY_READY. A requisition that is submitted
+ *     but not fully covered lands on SUBMITTED (the enum's own "awaiting
+ *     further resolution" state) instead.
+ *   - AllocationSource has no OFFICE. The office department's stock *is* the
+ *     schema's "spare" pool (Stock.spareQty's own comment: "held outside every
+ *     department quota"), so tier 2 allocations use AllocationSource.SPARE,
+ *     with sourceDeptId set to the office department actually drawn from.
+ */
+export type ResolutionBreakdownLine = {
+  lineId: string;
+  componentId: string;
+  componentCode: string;
+  componentName: string;
+  qtyNeeded: number;
+  qtyFromOwn: number;
+  qtyFromOffice: number;
+  qtyFromBorrow: number;
+  // RequisitionLine has no "to purchase" column — tier 4 (purchasing) isn't
+  // implemented yet, so anything still short is, for now, what would need to
+  // be purchased. The two numbers are intentionally identical today.
+  qtyToPurchase: number;
+  qtyShort: number;
+};
+
+export interface ResolutionBreakdown {
+  requisitionId: string;
+  status: string;
+  lines: ResolutionBreakdownLine[];
+}
 
 /** Roles that see every department's requisitions. */
 const UNSCOPED_ROLES: Role[] = [
@@ -643,5 +689,305 @@ export class RequisitionService {
     });
 
     return this.getRequisitionById(id, actor);
+  }
+
+  // ─────────────── auto-draft ───────────────
+
+  /**
+   * Drafts a CLASS requisition straight from a session's experiment: one line
+   * per experiment item, sized for the session's group count with a 10%
+   * buffer, rounded up. Mirrors createRequisition's CLASS handling (window
+   * from the session, department from the section's course, lab-assistant
+   * ownership check) rather than trusting the caller for any of it.
+   */
+  static async draftRequisitionForSession(
+    sessionId: string,
+    actor: RequisitionActor,
+  ): Promise<RequisitionWithRelations> {
+    const session = await prisma.classSession.findUnique({
+      where: { id: sessionId },
+      include: {
+        requisition: { select: { id: true } },
+        experiment: { include: { items: true } },
+        routineSlot: {
+          include: {
+            lab: { select: { groupSize: true } },
+            section: {
+              select: {
+                studentCount: true,
+                course: { select: { departmentId: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!session) {
+      throw new Error("Class session not found");
+    }
+
+    if (session.requisition) {
+      throw new Error("This class session already has a requisition");
+    }
+
+    if (!session.experiment) {
+      throw new Error("This class session has no experiment assigned");
+    }
+
+    const departmentId = session.routineSlot.section.course.departmentId;
+
+    if (actor.role !== "SYSTEM_ADMIN" && actor.departmentId !== departmentId) {
+      throw new Error(
+        "You can only raise requisitions for your own department",
+      );
+    }
+
+    const groups = Math.ceil(
+      session.routineSlot.section.studentCount /
+        session.routineSlot.lab.groupSize,
+    );
+
+    return prisma.requisition.create({
+      data: {
+        type: "CLASS",
+        origin: "AUTO_DRAFT",
+        classSessionId: sessionId,
+        requestedById: actor.id,
+        departmentId,
+        neededFrom: session.startsAt,
+        neededTo: session.endsAt,
+        status: "DRAFT",
+        lines: {
+          create: session.experiment.items.map((item) => ({
+            componentId: item.componentId,
+            // Integer arithmetic throughout: the float literal 1.1 cannot be
+            // represented exactly in binary (20 * 1.1 === 22.000000000000004
+            // in JS), which would round a clean 22 up to a wrong 23. Scaling
+            // by 11 and dividing by 10 keeps every intermediate value exact.
+            qtyNeeded: Math.ceil((item.qtyPerGroup * groups * 11) / 10),
+          })),
+        },
+      },
+      include: requisitionInclude,
+    });
+  }
+
+  // ─────────────── allocations ───────────────
+
+  static async createAllocation(
+    requisitionLineId: string,
+    qty: number,
+    source: AllocationSource,
+    departmentId: string | null,
+    client: AvailabilityQueryClient = prisma,
+  ): Promise<Allocation> {
+    return client.allocation.create({
+      data: {
+        requisitionLineId,
+        qty,
+        source,
+        sourceDeptId: departmentId,
+        status: "HELD",
+      },
+    });
+  }
+
+  /** Flips every HELD allocation on a requisition to RELEASED — the resolver
+   *  runs this first so a re-resolve never double-counts a prior attempt's
+   *  holds. */
+  static async releaseAllocations(
+    requisitionId: string,
+    client: AvailabilityQueryClient = prisma,
+  ): Promise<void> {
+    await client.allocation.updateMany({
+      where: {
+        status: "HELD",
+        requisitionLine: { requisitionId },
+      },
+      data: { status: "RELEASED" },
+    });
+  }
+
+  // ─────────────── resolver ───────────────
+
+  /**
+   * Tier 1 (own quota) then tier 2 (the office department's quota, standing
+   * in for the shared spare pool) for a single line. Returns the qty still
+   * short after both tiers. Tiers 3 (borrow) and 4 (purchase) are later work.
+   */
+  private static async resolveLine(
+    tx: Prisma.TransactionClient,
+    requisitionId: string,
+    departmentId: string,
+    window: AvailabilityWindow,
+    officeDept: { id: string } | null,
+    line: RequisitionLine,
+  ): Promise<number> {
+    let remaining = line.qtyNeeded;
+    let qtyOwnQuota = 0;
+    let qtySpare = 0;
+
+    const ownAvailable = await AvailabilityService.availableToDept(
+      departmentId,
+      line.componentId,
+      window,
+      requisitionId,
+      tx,
+    );
+
+    const fromOwn = Math.min(remaining, ownAvailable);
+
+    if (fromOwn > 0) {
+      await this.createAllocation(
+        line.id,
+        fromOwn,
+        "OWN_QUOTA",
+        departmentId,
+        tx,
+      );
+      qtyOwnQuota = fromOwn;
+      remaining -= fromOwn;
+    }
+
+    // Tier 2 only makes sense as a distinct source when the office is not the
+    // requesting department itself — otherwise it is the same quota twice.
+    if (remaining > 0 && officeDept && officeDept.id !== departmentId) {
+      const officeAvailable = await AvailabilityService.availableToDept(
+        officeDept.id,
+        line.componentId,
+        window,
+        requisitionId,
+        tx,
+      );
+
+      const fromOffice = Math.min(remaining, officeAvailable);
+
+      if (fromOffice > 0) {
+        await this.createAllocation(
+          line.id,
+          fromOffice,
+          "SPARE",
+          officeDept.id,
+          tx,
+        );
+        qtySpare = fromOffice;
+        remaining -= fromOffice;
+      }
+    }
+
+    await tx.requisitionLine.update({
+      where: { id: line.id },
+      data: { qtyOwnQuota, qtySpare, qtyShort: remaining },
+    });
+
+    return remaining;
+  }
+
+  /**
+   * Submits a DRAFT for resolution. The whole read-decide-write cycle runs
+   * inside one Serializable transaction: two submits racing for the same
+   * last units will see Postgres abort one of them (P2034) rather than let
+   * both believe they got the stock, because tier 1/2's availability reads
+   * go through the same `tx` as the allocations they lead to.
+   */
+  static async submitRequisition(
+    id: string,
+    actor: RequisitionActor,
+  ): Promise<RequisitionWithRelations> {
+    // Fails fast, outside the transaction, on the common cases (not found,
+    // not yours, already past draft) before paying for Serializable isolation.
+    await this.loadEditable(id, actor);
+
+    try {
+      await prisma.$transaction(
+        async (tx) => {
+          const requisition = await tx.requisition.findUnique({
+            where: { id },
+            include: { lines: true },
+          });
+
+          if (!requisition) {
+            throw new Error("Requisition not found");
+          }
+
+          if (requisition.status !== "DRAFT") {
+            throw new Error("Only a draft requisition can be changed");
+          }
+
+          await this.releaseAllocations(id, tx);
+
+          const window: AvailabilityWindow = {
+            from: requisition.neededFrom,
+            to: requisition.neededTo,
+          };
+
+          const officeDept = await tx.department.findFirst({
+            where: { isOffice: true, isActive: true },
+            orderBy: { createdAt: "asc" },
+          });
+
+          let fullyResolved = true;
+
+          for (const line of requisition.lines) {
+            const remaining = await this.resolveLine(
+              tx,
+              id,
+              requisition.departmentId,
+              window,
+              officeDept,
+              line,
+            );
+
+            if (remaining > 0) {
+              fullyResolved = false;
+            }
+          }
+
+          await tx.requisition.update({
+            where: { id },
+            data: { status: fullyResolved ? "READY" : "SUBMITTED" },
+          });
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2034"
+      ) {
+        throw new Error(
+          "This requisition is being resolved concurrently — please try again",
+        );
+      }
+
+      throw error;
+    }
+
+    return this.getRequisitionById(id, actor);
+  }
+
+  static async getResolutionBreakdown(
+    id: string,
+    actor: RequisitionActor,
+  ): Promise<ResolutionBreakdown> {
+    const requisition = await this.getRequisitionById(id, actor);
+
+    return {
+      requisitionId: requisition.id,
+      status: requisition.status,
+      lines: requisition.lines.map((line) => ({
+        lineId: line.id,
+        componentId: line.componentId,
+        componentCode: line.component.code,
+        componentName: line.component.name,
+        qtyNeeded: line.qtyNeeded,
+        qtyFromOwn: line.qtyOwnQuota,
+        qtyFromOffice: line.qtySpare,
+        qtyFromBorrow: line.qtyBorrowed,
+        qtyToPurchase: line.qtyShort,
+        qtyShort: line.qtyShort,
+      })),
+    };
   }
 }

@@ -4,6 +4,7 @@ import {
   AdjustStockRequest,
   ListStockMovementsQuery,
   ListStocksQuery,
+  TransferStockRequest,
   UpdateReorderPointRequest,
 } from "../schemas/stock.schema";
 
@@ -251,5 +252,135 @@ export class StockService {
       page,
       limit,
     };
+  }
+
+  /**
+   * Task 4.10. There is no moveStock() in this codebase and no per-department
+   * column on Stock to move between — Stock.onHand is one shared physical
+   * pool; DepartmentQuota is what actually varies by department. So a
+   * "transfer" here reassigns quota entitlement from one department to the
+   * other (their combined claim on the shared pool is unchanged) and logs a
+   * TRANSFER StockMovement plus a QuotaHistory row on each side, matching how
+   * QuotaService.updateQuota already records a quota change.
+   */
+  static async transferStock(
+    data: TransferStockRequest,
+    performedById: string,
+  ) {
+    const [component, fromDept, toDept] = await Promise.all([
+      prisma.component.findUnique({ where: { id: data.componentId } }),
+      prisma.department.findUnique({ where: { id: data.fromDeptId } }),
+      prisma.department.findUnique({ where: { id: data.toDeptId } }),
+    ]);
+
+    if (!component || !component.isActive) {
+      throw new Error("Component not found");
+    }
+
+    if (!fromDept || !fromDept.isActive) {
+      throw new Error("Source department not found");
+    }
+
+    if (!toDept || !toDept.isActive) {
+      throw new Error("Destination department not found");
+    }
+
+    return prisma.$transaction(async (tx) => {
+      const fromQuota = await tx.departmentQuota.findUnique({
+        where: {
+          departmentId_componentId: {
+            departmentId: data.fromDeptId,
+            componentId: data.componentId,
+          },
+        },
+      });
+
+      if (!fromQuota) {
+        throw new Error(
+          "Transfer would make the source department's quota negative",
+        );
+      }
+
+      const newFromQty = fromQuota.qty - data.qty;
+
+      if (newFromQty < 0) {
+        throw new Error(
+          "Transfer would make the source department's quota negative",
+        );
+      }
+
+      const updatedFromQuota = await tx.departmentQuota.update({
+        where: { id: fromQuota.id },
+        data: { qty: newFromQty },
+      });
+
+      const toQuota = await tx.departmentQuota.findUnique({
+        where: {
+          departmentId_componentId: {
+            departmentId: data.toDeptId,
+            componentId: data.componentId,
+          },
+        },
+      });
+
+      const oldToQty = toQuota?.qty ?? 0;
+      const newToQty = oldToQty + data.qty;
+
+      const updatedToQuota = toQuota
+        ? await tx.departmentQuota.update({
+            where: { id: toQuota.id },
+            data: { qty: newToQty },
+          })
+        : await tx.departmentQuota.create({
+            data: {
+              departmentId: data.toDeptId,
+              componentId: data.componentId,
+              qty: newToQty,
+            },
+          });
+
+      const reason =
+        data.note?.trim() || `Transfer from ${fromDept.code} to ${toDept.code}`;
+
+      await tx.quotaHistory.createMany({
+        data: [
+          {
+            departmentId: data.fromDeptId,
+            componentId: data.componentId,
+            oldQty: fromQuota.qty,
+            newQty: newFromQty,
+            reason,
+            changedById: performedById,
+          },
+          {
+            departmentId: data.toDeptId,
+            componentId: data.componentId,
+            oldQty: oldToQty,
+            newQty: newToQty,
+            reason,
+            changedById: performedById,
+          },
+        ],
+      });
+
+      const movement = await tx.stockMovement.create({
+        data: {
+          componentId: data.componentId,
+          qty: data.qty,
+          type: "TRANSFER",
+          fromDeptId: data.fromDeptId,
+          toDeptId: data.toDeptId,
+          performedById,
+          note: data.note,
+        },
+        include: movementInclude,
+      });
+
+      return {
+        fromQuota: updatedFromQuota,
+        toQuota: updatedToQuota,
+        movement,
+      };
+    });
   }
 }
