@@ -36,6 +36,7 @@ const CONFLICT_MESSAGES = [
   "This class session already has a requisition",
   "This component is already on the requisition",
   "Only a draft requisition can be changed",
+  "This requisition is being resolved concurrently — please try again",
 ];
 
 const BAD_REQUEST_MESSAGES = [
@@ -307,6 +308,59 @@ router.delete(
       );
 
       res.status(200).json({ data: requisition });
+    } catch (error) {
+      handleRequisitionError(error, res);
+    }
+  },
+);
+
+// ─────────────── submit & resolution ───────────────
+
+// No requireRole guard here either — submitting is finalizing your own
+// draft, and loadEditable (via RequisitionService.submitRequisition) already
+// enforces "yours, and still a draft" the same way update/delete/addLine do.
+router.post(
+  "/requisitions/:id/submit",
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const actor = actorFrom(req);
+
+      if (!actor) {
+        res.status(401).json({ error: "Not authenticated" });
+        return;
+      }
+
+      const requisition = await RequisitionService.submitRequisition(
+        req.params.id,
+        actor,
+      );
+
+      res.status(200).json({ data: requisition });
+    } catch (error) {
+      handleRequisitionError(error, res);
+    }
+  },
+);
+
+router.get(
+  "/requisitions/:id/resolution",
+  requireAuth,
+  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const actor = actorFrom(req);
+
+      if (!actor) {
+        res.status(401).json({ error: "Not authenticated" });
+        return;
+      }
+
+      const breakdown = await RequisitionService.getResolutionBreakdown(
+        req.params.id,
+        actor,
+      );
+
+      res.status(200).json({ data: breakdown });
     } catch (error) {
       handleRequisitionError(error, res);
     }

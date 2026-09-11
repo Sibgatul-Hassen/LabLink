@@ -409,4 +409,118 @@ describe("Stock Management API Integration Tests", () => {
       expect(res.body.data[1].qty).toBe(5);
     });
   });
+
+  describe("TRANSFER - POST /api/stocks/transfer", () => {
+    const transferDeptCodes = ["STOCKTEST-XFER-A", "STOCKTEST-XFER-B"];
+
+    let transferDeptAId: string;
+    let transferDeptBId: string;
+
+    beforeAll(async () => {
+      const deptA = await prisma.department.create({
+        data: {
+          code: transferDeptCodes[0],
+          name: "Stock Transfer Test Dept A",
+          isOffice: false,
+        },
+      });
+      transferDeptAId = deptA.id;
+
+      const deptB = await prisma.department.create({
+        data: {
+          code: transferDeptCodes[1],
+          name: "Stock Transfer Test Dept B",
+          isOffice: false,
+        },
+      });
+      transferDeptBId = deptB.id;
+
+      await prisma.departmentQuota.create({
+        data: { departmentId: transferDeptAId, componentId, qty: 10 },
+      });
+    });
+
+    afterAll(async () => {
+      await prisma.quotaHistory.deleteMany({
+        where: { departmentId: { in: [transferDeptAId, transferDeptBId] } },
+      });
+      await prisma.departmentQuota.deleteMany({
+        where: { departmentId: { in: [transferDeptAId, transferDeptBId] } },
+      });
+      await prisma.department.deleteMany({
+        where: { code: { in: transferDeptCodes } },
+      });
+    });
+
+    it("should deny STUDENT from transferring stock", async () => {
+      const res = await request(app)
+        .post("/api/stocks/transfer")
+        .set("Authorization", `Bearer ${studentToken}`)
+        .send({
+          fromDeptId: transferDeptAId,
+          toDeptId: transferDeptBId,
+          componentId,
+          qty: 3,
+        });
+
+      expect(res.status).toBe(403);
+    });
+
+    it("should reject transferring to the same department", async () => {
+      const res = await request(app)
+        .post("/api/stocks/transfer")
+        .set("Authorization", `Bearer ${centralToken}`)
+        .send({
+          fromDeptId: transferDeptAId,
+          toDeptId: transferDeptAId,
+          componentId,
+          qty: 1,
+        });
+
+      expect(res.status).toBe(400);
+    });
+
+    it("should reject a transfer that exceeds the source department's quota", async () => {
+      const res = await request(app)
+        .post("/api/stocks/transfer")
+        .set("Authorization", `Bearer ${centralToken}`)
+        .send({
+          fromDeptId: transferDeptAId,
+          toDeptId: transferDeptBId,
+          componentId,
+          qty: 100,
+        });
+
+      expect(res.status).toBe(409);
+    });
+
+    it("should move quota entitlement from one department to another", async () => {
+      const res = await request(app)
+        .post("/api/stocks/transfer")
+        .set("Authorization", `Bearer ${centralToken}`)
+        .send({
+          fromDeptId: transferDeptAId,
+          toDeptId: transferDeptBId,
+          componentId,
+          qty: 4,
+          note: "Integration test transfer",
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.fromQuota.qty).toBe(6);
+      expect(res.body.data.toQuota.qty).toBe(4);
+      expect(res.body.data.movement.type).toBe("TRANSFER");
+      expect(res.body.data.movement.fromDeptId).toBe(transferDeptAId);
+      expect(res.body.data.movement.toDeptId).toBe(transferDeptBId);
+
+      const history = await prisma.quotaHistory.findMany({
+        where: {
+          componentId,
+          departmentId: { in: [transferDeptAId, transferDeptBId] },
+        },
+      });
+
+      expect(history).toHaveLength(2);
+    });
+  });
 });

@@ -25,6 +25,19 @@ export const listStockMovementsQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(100).default(20),
 });
 
+export const transferStockSchema = z
+  .object({
+    fromDeptId: z.string().min(1, "Source department is required"),
+    toDeptId: z.string().min(1, "Destination department is required"),
+    componentId: z.string().min(1, "Component is required"),
+    qty: z.coerce.number().int().positive("Quantity must be at least 1"),
+    note: z.string().max(500).optional(),
+  })
+  .refine((data) => data.fromDeptId !== data.toDeptId, {
+    message: "Source and destination departments must be different",
+    path: ["toDeptId"],
+  });
+
 export type ListStocksQuery = z.infer<typeof listStocksQuerySchema>;
 export type UpdateReorderPointRequest = z.infer<
   typeof updateReorderPointSchema
@@ -33,3 +46,4 @@ export type AdjustStockRequest = z.infer<typeof adjustStockSchema>;
 export type ListStockMovementsQuery = z.infer<
   typeof listStockMovementsQuerySchema
 >;
+export type TransferStockRequest = z.infer<typeof transferStockSchema>;

@@ -6,6 +6,7 @@ import {
   adjustStockSchema,
   listStockMovementsQuerySchema,
   listStocksQuerySchema,
+  transferStockSchema,
   updateReorderPointSchema,
 } from "../schemas/stock.schema";
 import { StockService } from "../services/stock.service";
@@ -149,6 +150,48 @@ router.post(
           error.message.includes("negative") ||
           error.message.includes("spare quantity")
         ) {
+          res.status(409).json({ error: error.message });
+        } else {
+          res.status(500).json({ error: "Internal server error" });
+        }
+      } else {
+        res.status(500).json({ error: "Internal server error" });
+      }
+    }
+  },
+);
+
+// POST /api/stocks/transfer — Task 4.10. Every other stock route in this file
+// is plural ("/stocks/..."), so this stays plural too rather than introducing
+// a one-off "/stock/transfer".
+router.post(
+  "/stocks/transfer",
+  requireAuth,
+  requireRole("CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      if (!req.user) {
+        res.status(401).json({ error: "Not authenticated" });
+        return;
+      }
+
+      const validated = transferStockSchema.parse(req.body);
+
+      const result = await StockService.transferStock(
+        validated,
+        req.user.id,
+      );
+
+      res.status(200).json({ data: result });
+    } catch (error) {
+      if (error instanceof ZodError) {
+        res
+          .status(400)
+          .json({ error: error.issues[0]?.message ?? "Invalid request body" });
+      } else if (error instanceof Error) {
+        if (error.message.includes("not found")) {
+          res.status(404).json({ error: error.message });
+        } else if (error.message.includes("negative")) {
           res.status(409).json({ error: error.message });
         } else {
           res.status(500).json({ error: "Internal server error" });

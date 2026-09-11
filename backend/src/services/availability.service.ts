@@ -7,6 +7,17 @@ export interface AvailabilityWindow {
   to: Date;
 }
 
+/**
+ * Either the top-level client or a `prisma.$transaction` callback's `tx`.
+ * Every query below takes one of these instead of importing `prisma`
+ * directly, so a caller running inside a transaction — the resolver in
+ * requisition.service.ts, under Serializable isolation — gets availability
+ * reads that are part of that same transaction. Without this, the read and
+ * the allocation write would run on separate connections and Postgres would
+ * have no way to detect two submits racing for the same units.
+ */
+export type AvailabilityQueryClient = typeof prisma | Prisma.TransactionClient;
+
 export interface AvailabilityBreakdown {
   departmentId: string;
   componentId: string;
@@ -50,6 +61,7 @@ export function overlaps(
  * Prisma predicate.
  */
 async function sumOverlappingClaims(
+  client: AvailabilityQueryClient,
   componentId: string,
   win: AvailabilityWindow,
   sourceDeptId?: string,
@@ -68,7 +80,7 @@ async function sumOverlappingClaims(
     },
   };
 
-  const result = await prisma.allocation.aggregate({
+  const result = await client.allocation.aggregate({
     where,
     _sum: { qty: true },
   });
@@ -96,12 +108,13 @@ export class AvailabilityService {
     componentId: string,
     win: AvailabilityWindow,
     ignoreRequisitionId?: string,
+    client: AvailabilityQueryClient = prisma,
   ): Promise<AvailabilityBreakdown> {
     const [quotaRow, stockRow] = await Promise.all([
-      prisma.departmentQuota.findUnique({
+      client.departmentQuota.findUnique({
         where: { departmentId_componentId: { departmentId, componentId } },
       }),
-      prisma.stock.findUnique({ where: { componentId } }),
+      client.stock.findUnique({ where: { componentId } }),
     ]);
 
     // No quota row means no entitlement, not unlimited entitlement.
@@ -109,8 +122,8 @@ export class AvailabilityService {
     const onHand = stockRow?.onHand ?? 0;
 
     const [ownClaims, allClaims] = await Promise.all([
-      sumOverlappingClaims(componentId, win, departmentId, ignoreRequisitionId),
-      sumOverlappingClaims(componentId, win, undefined, ignoreRequisitionId),
+      sumOverlappingClaims(client, componentId, win, departmentId, ignoreRequisitionId),
+      sumOverlappingClaims(client, componentId, win, undefined, ignoreRequisitionId),
     ]);
 
     const quotaFree = quota - ownClaims;
@@ -153,12 +166,14 @@ export class AvailabilityService {
     componentId: string,
     win: AvailabilityWindow,
     ignoreRequisitionId?: string,
+    client: AvailabilityQueryClient = prisma,
   ): Promise<number> {
     const result = await this.breakdown(
       departmentId,
       componentId,
       win,
       ignoreRequisitionId,
+      client,
     );
 
     return result.available;
