@@ -66,6 +66,12 @@ async function clearRequisitions() {
 
 async function cleanupTestData() {
   await clearRequisitions();
+  await prisma.stockMovement.deleteMany({
+    where: { component: { code: { in: testComponentCodes } } },
+  });
+  await prisma.stock.deleteMany({
+    where: { component: { code: { in: testComponentCodes } } },
+  });
   await prisma.classSession.deleteMany({
     where: {
       routineSlot: {
@@ -794,6 +800,175 @@ describe("Requisition CRUD API Integration Tests", () => {
         .send({ componentId: componentTwoId, qtyNeeded: 1 });
 
       expect(res.status).toBe(409);
+    });
+  });
+
+  describe("Issue and return", () => {
+    let requisitionId: string;
+
+    beforeEach(async () => {
+      await clearRequisitions();
+      await prisma.stockMovement.deleteMany({
+        where: { component: { code: { in: testComponentCodes } } },
+      });
+      await prisma.stock.deleteMany({
+        where: { component: { code: { in: testComponentCodes } } },
+      });
+
+      const res = await create(
+        {
+          type: "PERSONAL",
+          ...OWN_WINDOW,
+          lines: [{ componentId: componentOneId, qtyNeeded: 5 }],
+        },
+        studentToken,
+      );
+
+      requisitionId = res.body.data.id;
+    });
+
+    it("rejects unauthenticated issue requests", async () => {
+      const res = await request(app).post(
+        `/api/requisitions/${requisitionId}/issue`,
+      );
+
+      expect(res.status).toBe(401);
+    });
+
+    it("stops a student issuing a requisition", async () => {
+      const res = await request(app)
+        .post(`/api/requisitions/${requisitionId}/issue`)
+        .set("Authorization", `Bearer ${studentToken}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it("returns 404 for an unknown requisition on issue", async () => {
+      const res = await request(app)
+        .post("/api/requisitions/nonexistent/issue")
+        .set("Authorization", `Bearer ${centralToken}`);
+
+      expect(res.status).toBe(404);
+    });
+
+    it("returns 404 for an unknown requisition on return", async () => {
+      const res = await request(app)
+        .post("/api/requisitions/nonexistent/return")
+        .set("Authorization", `Bearer ${centralToken}`)
+        .send({ items: [{ componentId: componentOneId, goodQty: 1 }] });
+
+      expect(res.status).toBe(404);
+    });
+
+    it("refuses to issue a requisition that is not ready", async () => {
+      const res = await request(app)
+        .post(`/api/requisitions/${requisitionId}/issue`)
+        .set("Authorization", `Bearer ${centralToken}`);
+
+      expect(res.status).toBe(400);
+    });
+
+    it("refuses to return a requisition that has not been issued", async () => {
+      const res = await request(app)
+        .post(`/api/requisitions/${requisitionId}/return`)
+        .set("Authorization", `Bearer ${centralToken}`)
+        .send({ items: [{ componentId: componentOneId, goodQty: 1 }] });
+
+      expect(res.status).toBe(400);
+    });
+
+    it("refuses to issue when stock is insufficient", async () => {
+      await prisma.stock.create({
+        data: { componentId: componentOneId, onHand: 1, spareQty: 0 },
+      });
+
+      await prisma.requisition.update({
+        where: { id: requisitionId },
+        data: { status: "READY" },
+      });
+
+      const res = await request(app)
+        .post(`/api/requisitions/${requisitionId}/issue`)
+        .set("Authorization", `Bearer ${centralToken}`);
+
+      expect(res.status).toBe(409);
+    });
+
+    it("issues stock and later accepts a return", async () => {
+      await prisma.stock.create({
+        data: { componentId: componentOneId, onHand: 10, spareQty: 0 },
+      });
+
+      await prisma.requisition.update({
+        where: { id: requisitionId },
+        data: { status: "READY" },
+      });
+
+      const issueRes = await request(app)
+        .post(`/api/requisitions/${requisitionId}/issue`)
+        .set("Authorization", `Bearer ${centralToken}`);
+
+      expect(issueRes.status).toBe(200);
+      expect(issueRes.body.data.status).toBe("ISSUED");
+      expect(issueRes.body.data.lines[0].qtyIssued).toBe(5);
+
+      const stockAfterIssue = await prisma.stock.findUnique({
+        where: { componentId: componentOneId },
+      });
+
+      expect(stockAfterIssue?.onHand).toBe(5);
+
+      const issueMovement = await prisma.stockMovement.findFirst({
+        where: {
+          componentId: componentOneId,
+          type: "ISSUE",
+          refId: requisitionId,
+        },
+      });
+
+      expect(issueMovement).not.toBeNull();
+      expect(issueMovement?.qty).toBe(-5);
+
+      const returnRes = await request(app)
+        .post(`/api/requisitions/${requisitionId}/return`)
+        .set("Authorization", `Bearer ${centralToken}`)
+        .send({
+          items: [
+            {
+              componentId: componentOneId,
+              goodQty: 3,
+              damagedQty: 1,
+              lostQty: 1,
+              usedUpQty: 0,
+            },
+          ],
+        });
+
+      expect(returnRes.status).toBe(200);
+      expect(returnRes.body.data.status).toBe("RETURNED");
+
+      const returnedLine = returnRes.body.data.lines[0];
+      expect(returnedLine.qtyReturnedGood).toBe(3);
+      expect(returnedLine.qtyDamaged).toBe(1);
+      expect(returnedLine.qtyLost).toBe(1);
+
+      const stockAfterReturn = await prisma.stock.findUnique({
+        where: { componentId: componentOneId },
+      });
+
+      // 5 remained after issue; +3 good returned = 8. Damaged/lost stay out.
+      expect(stockAfterReturn?.onHand).toBe(8);
+
+      const damagedMovement = await prisma.stockMovement.findFirst({
+        where: {
+          componentId: componentOneId,
+          type: "DAMAGED",
+          refId: requisitionId,
+        },
+      });
+
+      expect(damagedMovement).not.toBeNull();
+      expect(damagedMovement?.qty).toBe(1);
     });
   });
 });

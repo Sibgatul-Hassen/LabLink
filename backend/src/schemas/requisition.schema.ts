@@ -99,3 +99,33 @@ export type CreateRequisitionLineRequest = z.infer<
 export type UpdateRequisitionLineRequest = z.infer<
   typeof updateRequisitionLineSchema
 >;
+
+const returnRequisitionItemSchema = z
+  .object({
+    componentId: z.string().min(1, "Component is required"),
+    goodQty: z.coerce.number().int().nonnegative().default(0),
+    damagedQty: z.coerce.number().int().nonnegative().default(0),
+    lostQty: z.coerce.number().int().nonnegative().default(0),
+    usedUpQty: z.coerce.number().int().nonnegative().default(0),
+  })
+  .refine(
+    (item) =>
+      item.goodQty + item.damagedQty + item.lostQty + item.usedUpQty > 0,
+    { message: "At least one quantity must be greater than zero" },
+  );
+
+export const returnRequisitionSchema = z
+  .object({
+    items: z
+      .array(returnRequisitionItemSchema)
+      .min(1, "At least one item is required"),
+  })
+  .refine(
+    (data) => {
+      const ids = data.items.map((item) => item.componentId);
+      return new Set(ids).size === ids.length;
+    },
+    { message: "Duplicate component in return items" },
+  );
+
+export type ReturnRequisitionRequest = z.infer<typeof returnRequisitionSchema>;

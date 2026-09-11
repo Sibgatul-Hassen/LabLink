@@ -5,6 +5,7 @@ import {
   CreateRequisitionLineRequest,
   CreateRequisitionRequest,
   ListRequisitionsQuery,
+  ReturnRequisitionRequest,
   UpdateRequisitionLineRequest,
   UpdateRequisitionRequest,
 } from "../schemas/requisition.schema";
@@ -420,5 +421,227 @@ export class RequisitionService {
     await prisma.requisitionLine.delete({ where: { id: lineId } });
 
     return this.getRequisitionById(requisitionId, actor);
+  }
+
+  // ─────────────── issue & return ───────────────
+
+  /**
+   * Issues a READY requisition: every line is handed out in full, deducted
+   * from stock.onHand except for the portion the resolver already marked as
+   * coming from the spare pool (line.qtySpare), which is deducted from
+   * stock.spareQty instead.
+   */
+  static async issueRequisition(
+    id: string,
+    actor: RequisitionActor,
+  ): Promise<RequisitionWithRelations> {
+    const requisition = await this.getRequisitionById(id, actor);
+
+    if (requisition.status !== "READY") {
+      throw new Error("Requisition must be ready before it can be issued");
+    }
+
+    await prisma.$transaction(async (tx) => {
+      for (const line of requisition.lines) {
+        const stock = await tx.stock.findUnique({
+          where: { componentId: line.componentId },
+        });
+
+        const currentOnHand = stock?.onHand ?? 0;
+        const currentSpareQty = stock?.spareQty ?? 0;
+
+        const sparePortion = Math.min(line.qtySpare, line.qtyNeeded);
+        const onHandPortion = line.qtyNeeded - sparePortion;
+
+        const newOnHand = currentOnHand - onHandPortion;
+        const newSpareQty = currentSpareQty - sparePortion;
+
+        if (newOnHand < 0 || newSpareQty < 0) {
+          throw new Error(`Insufficient stock for ${line.component.code}`);
+        }
+
+        if (stock) {
+          await tx.stock.update({
+            where: { componentId: line.componentId },
+            data: { onHand: newOnHand, spareQty: newSpareQty },
+          });
+        } else {
+          await tx.stock.create({
+            data: {
+              componentId: line.componentId,
+              onHand: newOnHand,
+              spareQty: 0,
+              reorderPoint: 0,
+            },
+          });
+        }
+
+        await tx.stockMovement.create({
+          data: {
+            componentId: line.componentId,
+            qty: -line.qtyNeeded,
+            type: "ISSUE",
+            refType: "REQUISITION",
+            refId: id,
+            performedById: actor.id,
+          },
+        });
+
+        await tx.requisitionLine.update({
+          where: { id: line.id },
+          data: { qtyIssued: line.qtyNeeded },
+        });
+      }
+
+      await tx.requisition.update({
+        where: { id },
+        data: {
+          status: "ISSUED",
+          issuedAt: new Date(),
+          issuedById: actor.id,
+        },
+      });
+    });
+
+    return this.getRequisitionById(id, actor);
+  }
+
+  /**
+   * Records a return against an ISSUED requisition. Good units go back onto
+   * stock.onHand; damaged, lost, and used-up units stay off the shelf but
+   * are still logged as movements for the audit trail.
+   */
+  static async returnRequisition(
+    id: string,
+    data: ReturnRequisitionRequest,
+    actor: RequisitionActor,
+  ): Promise<RequisitionWithRelations> {
+    const requisition = await this.getRequisitionById(id, actor);
+
+    if (requisition.status !== "ISSUED") {
+      throw new Error("Requisition must be issued before it can be returned");
+    }
+
+    const linesByComponent = new Map(
+      requisition.lines.map((line) => [line.componentId, line]),
+    );
+
+    await prisma.$transaction(async (tx) => {
+      for (const item of data.items) {
+        const line = linesByComponent.get(item.componentId);
+
+        if (!line) {
+          throw new Error("Component not on this requisition");
+        }
+
+        const totalReturning =
+          item.goodQty + item.damagedQty + item.lostQty + item.usedUpQty;
+
+        const alreadyProcessed =
+          line.qtyReturnedGood +
+          line.qtyDamaged +
+          line.qtyLost +
+          line.qtyUsedUp;
+
+        const outstanding = line.qtyIssued - alreadyProcessed;
+
+        if (totalReturning > outstanding) {
+          throw new Error("Return quantity exceeds issued quantity");
+        }
+
+        await tx.requisitionLine.update({
+          where: { id: line.id },
+          data: {
+            qtyReturnedGood: { increment: item.goodQty },
+            qtyDamaged: { increment: item.damagedQty },
+            qtyLost: { increment: item.lostQty },
+            qtyUsedUp: { increment: item.usedUpQty },
+          },
+        });
+
+        if (item.goodQty > 0) {
+          const stock = await tx.stock.findUnique({
+            where: { componentId: item.componentId },
+          });
+
+          if (stock) {
+            await tx.stock.update({
+              where: { componentId: item.componentId },
+              data: { onHand: { increment: item.goodQty } },
+            });
+          } else {
+            await tx.stock.create({
+              data: {
+                componentId: item.componentId,
+                onHand: item.goodQty,
+                spareQty: 0,
+                reorderPoint: 0,
+              },
+            });
+          }
+
+          await tx.stockMovement.create({
+            data: {
+              componentId: item.componentId,
+              qty: item.goodQty,
+              type: "RETURN",
+              refType: "REQUISITION",
+              refId: id,
+              performedById: actor.id,
+            },
+          });
+        }
+
+        if (item.damagedQty > 0) {
+          await tx.stockMovement.create({
+            data: {
+              componentId: item.componentId,
+              qty: item.damagedQty,
+              type: "DAMAGED",
+              refType: "REQUISITION",
+              refId: id,
+              performedById: actor.id,
+            },
+          });
+        }
+
+        if (item.lostQty > 0) {
+          await tx.stockMovement.create({
+            data: {
+              componentId: item.componentId,
+              qty: item.lostQty,
+              type: "LOST",
+              refType: "REQUISITION",
+              refId: id,
+              performedById: actor.id,
+            },
+          });
+        }
+
+        if (item.usedUpQty > 0) {
+          await tx.stockMovement.create({
+            data: {
+              componentId: item.componentId,
+              qty: item.usedUpQty,
+              type: "USED_UP",
+              refType: "REQUISITION",
+              refId: id,
+              performedById: actor.id,
+            },
+          });
+        }
+      }
+
+      await tx.requisition.update({
+        where: { id },
+        data: {
+          status: "RETURNED",
+          returnedAt: new Date(),
+          returnedById: actor.id,
+        },
+      });
+    });
+
+    return this.getRequisitionById(id, actor);
   }
 }
