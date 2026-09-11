@@ -10,7 +10,9 @@ import {
   createRequisition,
   deleteRequisition,
   getRequisitions,
+  issueRequisition,
   removeRequisitionLine,
+  returnRequisition,
   updateRequisitionLine,
 } from "../api/requisition.api";
 import { useAuthStore } from "../store/authStore";
@@ -19,6 +21,7 @@ import type {
   Requisition,
   RequisitionStatus,
   RequisitionType,
+  ReturnRequisitionItemInput,
   Role,
 } from "../types";
 
@@ -52,6 +55,18 @@ function raisableTypes(role: Role | undefined): RequisitionType[] {
   }
 
   return [];
+}
+
+/** Mirrors the requireRole guard on the issue/return endpoints. */
+function canIssueOrReturn(role: Role | undefined): boolean {
+  return role === "CENTRAL_STORE_OFFICER" || role === "SYSTEM_ADMIN";
+}
+
+interface ReturnDraft {
+  goodQty: string;
+  damagedQty: string;
+  lostQty: string;
+  usedUpQty: string;
 }
 
 function getErrorMessage(error: unknown): string {
@@ -99,6 +114,13 @@ export default function Requisitions() {
   const [lineError, setLineError] = useState("");
 
   const [actionError, setActionError] = useState("");
+
+  const [returnRequisitionTarget, setReturnRequisitionTarget] =
+    useState<Requisition | null>(null);
+  const [returnDrafts, setReturnDrafts] = useState<
+    Record<string, ReturnDraft>
+  >({});
+  const [returnError, setReturnError] = useState("");
 
   const limit = 10;
 
@@ -219,6 +241,34 @@ export default function Requisitions() {
     },
   });
 
+  const issueMutation = useMutation({
+    mutationFn: issueRequisition,
+    onSuccess: async () => {
+      setActionError("");
+      await refresh();
+    },
+    onError: (mutationError: unknown) => {
+      setActionError(getErrorMessage(mutationError));
+    },
+  });
+
+  const returnMutation = useMutation({
+    mutationFn: ({
+      requisitionId,
+      items,
+    }: {
+      requisitionId: string;
+      items: ReturnRequisitionItemInput[];
+    }) => returnRequisition(requisitionId, { items }),
+    onSuccess: async () => {
+      await refresh();
+      closeReturnModal();
+    },
+    onError: (mutationError: unknown) => {
+      setReturnError(getErrorMessage(mutationError));
+    },
+  });
+
   /** A draft belongs to its requester; the resolver owns anything past DRAFT. */
   function canEdit(requisition: Requisition): boolean {
     if (requisition.status !== "DRAFT") {
@@ -315,6 +365,118 @@ export default function Requisitions() {
       requisitionId,
       componentId: newLineComponentId,
       qtyNeeded: qty,
+    });
+  }
+
+  function handleIssue(requisition: Requisition) {
+    const confirmed = window.confirm(
+      "Issue this requisition? Stock will be deducted immediately.",
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setActionError("");
+    issueMutation.mutate(requisition.id);
+  }
+
+  function openReturnModal(requisition: Requisition) {
+    const drafts: Record<string, ReturnDraft> = {};
+
+    for (const line of requisition.lines) {
+      const outstanding =
+        line.qtyIssued -
+        (line.qtyReturnedGood + line.qtyDamaged + line.qtyLost + line.qtyUsedUp);
+
+      drafts[line.id] = {
+        goodQty: String(Math.max(outstanding, 0)),
+        damagedQty: "0",
+        lostQty: "0",
+        usedUpQty: "0",
+      };
+    }
+
+    setReturnDrafts(drafts);
+    setReturnError("");
+    setReturnRequisitionTarget(requisition);
+  }
+
+  function closeReturnModal() {
+    setReturnRequisitionTarget(null);
+    setReturnDrafts({});
+    setReturnError("");
+  }
+
+  function updateReturnDraft(
+    lineId: string,
+    field: keyof ReturnDraft,
+    value: string,
+  ) {
+    setReturnDrafts((current) => ({
+      ...current,
+      [lineId]: { ...current[lineId], [field]: value },
+    }));
+  }
+
+  function handleReturnSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setReturnError("");
+
+    if (!returnRequisitionTarget) {
+      return;
+    }
+
+    const items: ReturnRequisitionItemInput[] = [];
+
+    for (const line of returnRequisitionTarget.lines) {
+      const draft = returnDrafts[line.id];
+
+      if (!draft) {
+        continue;
+      }
+
+      const goodQty = Number(draft.goodQty) || 0;
+      const damagedQty = Number(draft.damagedQty) || 0;
+      const lostQty = Number(draft.lostQty) || 0;
+      const usedUpQty = Number(draft.usedUpQty) || 0;
+
+      if ([goodQty, damagedQty, lostQty, usedUpQty].some((qty) => qty < 0)) {
+        setReturnError("Quantities cannot be negative.");
+        return;
+      }
+
+      const total = goodQty + damagedQty + lostQty + usedUpQty;
+      const outstanding =
+        line.qtyIssued -
+        (line.qtyReturnedGood + line.qtyDamaged + line.qtyLost + line.qtyUsedUp);
+
+      if (total > outstanding) {
+        setReturnError(
+          `${line.component.code}: returned quantity exceeds what is still outstanding (${outstanding}).`,
+        );
+        return;
+      }
+
+      if (total > 0) {
+        items.push({
+          componentId: line.componentId,
+          goodQty,
+          damagedQty,
+          lostQty,
+          usedUpQty,
+        });
+      }
+    }
+
+    if (items.length === 0) {
+      setReturnError("Enter at least one quantity to return.");
+      return;
+    }
+
+    returnMutation.mutate({
+      requisitionId: returnRequisitionTarget.id,
+      items,
     });
   }
 
@@ -520,16 +682,41 @@ export default function Requisitions() {
                       </td>
 
                       <td className="whitespace-nowrap px-6 py-4 text-right">
-                        {canEdit(requisition) && (
-                          <button
-                            type="button"
-                            onClick={() => handleDelete(requisition)}
-                            disabled={deleteMutation.isPending}
-                            className="rounded-md border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            Delete
-                          </button>
-                        )}
+                        <div className="flex justify-end gap-2">
+                          {canEdit(requisition) && (
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(requisition)}
+                              disabled={deleteMutation.isPending}
+                              className="rounded-md border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Delete
+                            </button>
+                          )}
+
+                          {canIssueOrReturn(user?.role) &&
+                            requisition.status === "READY" && (
+                              <button
+                                type="button"
+                                onClick={() => handleIssue(requisition)}
+                                disabled={issueMutation.isPending}
+                                className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                Issue
+                              </button>
+                            )}
+
+                          {canIssueOrReturn(user?.role) &&
+                            requisition.status === "ISSUED" && (
+                              <button
+                                type="button"
+                                onClick={() => openReturnModal(requisition)}
+                                className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                              >
+                                Return
+                              </button>
+                            )}
+                        </div>
                       </td>
                     </tr>
 
@@ -885,6 +1072,141 @@ export default function Requisitions() {
                   className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {createMutation.isPending ? "Creating..." : "Create Draft"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {returnRequisitionTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+          <div className="max-h-full w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">
+                  Return Components
+                </h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  Record what came back for each issued component. Good
+                  quantity returns to stock; damaged, lost, and used-up
+                  quantities do not.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={closeReturnModal}
+                className="text-2xl leading-none text-slate-400 transition hover:text-slate-700"
+                aria-label="Close return form"
+              >
+                ×
+              </button>
+            </div>
+
+            <form onSubmit={handleReturnSubmit} className="space-y-5 p-6">
+              <div className="overflow-x-auto rounded-lg border border-slate-200">
+                <table className="min-w-full divide-y divide-slate-200">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Component
+                      </th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Good
+                      </th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Damaged
+                      </th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Lost
+                      </th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Used Up
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody className="divide-y divide-slate-100 bg-white">
+                    {returnRequisitionTarget.lines
+                      .filter((line) => line.qtyIssued > 0)
+                      .map((line) => {
+                        const draft = returnDrafts[line.id];
+                        const outstanding =
+                          line.qtyIssued -
+                          (line.qtyReturnedGood +
+                            line.qtyDamaged +
+                            line.qtyLost +
+                            line.qtyUsedUp);
+
+                        return (
+                          <tr key={line.id}>
+                            <td className="px-4 py-2 text-sm text-slate-700">
+                              <span className="font-medium text-slate-900">
+                                {line.component.code}
+                              </span>
+                              <div className="text-xs text-slate-500">
+                                {outstanding} of {line.qtyIssued}{" "}
+                                {line.component.unit} outstanding
+                              </div>
+                            </td>
+
+                            {(
+                              [
+                                "goodQty",
+                                "damagedQty",
+                                "lostQty",
+                                "usedUpQty",
+                              ] as const
+                            ).map((field) => (
+                              <td key={field} className="px-4 py-2">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  aria-label={`${field} for ${line.component.code}`}
+                                  value={draft?.[field] ?? "0"}
+                                  onChange={(event) =>
+                                    updateReturnDraft(
+                                      line.id,
+                                      field,
+                                      event.target.value,
+                                    )
+                                  }
+                                  className="w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                                />
+                              </td>
+                            ))}
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+              </div>
+
+              {returnError && (
+                <div
+                  role="alert"
+                  className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"
+                >
+                  {returnError}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
+                <button
+                  type="button"
+                  onClick={closeReturnModal}
+                  className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={returnMutation.isPending}
+                  className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {returnMutation.isPending ? "Saving..." : "Record Return"}
                 </button>
               </div>
             </form>

@@ -700,6 +700,18 @@ export interface UpdateRequisitionRequest {
   neededTo?: string;
 }
 
+export interface ReturnRequisitionItemInput {
+  componentId: string;
+  goodQty?: number;
+  damagedQty?: number;
+  lostQty?: number;
+  usedUpQty?: number;
+}
+
+export interface ReturnRequisitionRequest {
+  items: ReturnRequisitionItemInput[];
+}
+
 export interface RequisitionListResponse {
   data: Requisition[];
   total: number;

@@ -6,6 +6,7 @@ import type {
   RequisitionListResponse,
   RequisitionStatus,
   RequisitionType,
+  ReturnRequisitionRequest,
   UpdateRequisitionRequest,
 } from "../types";
 
@@ -103,6 +104,26 @@ export async function removeRequisitionLine(
 ): Promise<Requisition> {
   const response = await apiClient.delete<RequisitionResponse>(
     `/api/requisitions/${requisitionId}/lines/${lineId}`,
+  );
+
+  return response.data.data;
+}
+
+export async function issueRequisition(id: string): Promise<Requisition> {
+  const response = await apiClient.post<RequisitionResponse>(
+    `/api/requisitions/${id}/issue`,
+  );
+
+  return response.data.data;
+}
+
+export async function returnRequisition(
+  id: string,
+  data: ReturnRequisitionRequest,
+): Promise<Requisition> {
+  const response = await apiClient.post<RequisitionResponse>(
+    `/api/requisitions/${id}/return`,
+    data,
   );
 
   return response.data.data;
