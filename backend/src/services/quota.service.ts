@@ -1,9 +1,11 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
+import { AnalyticsService } from "./analytics.service";
 import {
   ListQuotaHistoryQuery,
   ListQuotasQuery,
   UpdateQuotaRequest,
+  GenerateQuotaSuggestionsRequest,
 } from "../schemas/quota.schema";
 
 const quotaInclude = {
@@ -280,6 +282,107 @@ export class QuotaService {
 
       return quota;
     });
+  }
+
+  static async generateSuggestions(
+    data: GenerateQuotaSuggestionsRequest,
+  ) {
+    const department = await prisma.department.findUnique({
+      where: { id: data.departmentId },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        isActive: true,
+      },
+    });
+
+    if (!department || !department.isActive) {
+      throw new Error("Department not found");
+    }
+
+    const peakResult = await AnalyticsService.peakClasses({
+      departmentId: data.departmentId,
+      from: data.from,
+      to: data.to,
+    });
+
+    const peakGroups = peakResult.data[0]?.peakGroups ?? 0;
+
+    const experimentItems = await prisma.experimentItem.findMany({
+      where: {
+        experiment: {
+          course: {
+            departmentId: data.departmentId,
+            isActive: true,
+          },
+        },
+        component: {
+          isActive: true,
+        },
+      },
+      select: {
+        componentId: true,
+        qtyPerGroup: true,
+      },
+    });
+
+    const maxQtyPerGroupByComponent = new Map<string, number>();
+
+    for (const item of experimentItems) {
+      const current =
+        maxQtyPerGroupByComponent.get(item.componentId) ?? 0;
+
+      if (item.qtyPerGroup > current) {
+        maxQtyPerGroupByComponent.set(
+          item.componentId,
+          item.qtyPerGroup,
+        );
+      }
+    }
+
+    const suggestions = [...maxQtyPerGroupByComponent.entries()]
+      .map(([componentId, maxQtyPerGroup]) => ({
+        componentId,
+        maxQtyPerGroup,
+        suggestedQty: peakGroups * maxQtyPerGroup,
+      }))
+      .sort((a, b) => a.componentId.localeCompare(b.componentId));
+
+    await prisma.$transaction(async (tx) => {
+      for (const suggestion of suggestions) {
+        await tx.departmentQuota.upsert({
+          where: {
+            departmentId_componentId: {
+              departmentId: data.departmentId,
+              componentId: suggestion.componentId,
+            },
+          },
+          update: {
+            suggestedQty: suggestion.suggestedQty,
+          },
+          create: {
+            departmentId: data.departmentId,
+            componentId: suggestion.componentId,
+            qty: 0,
+            suggestedQty: suggestion.suggestedQty,
+            confirmedAt: null,
+          },
+        });
+      }
+    });
+
+    return {
+      department: {
+        id: department.id,
+        code: department.code,
+        name: department.name,
+      },
+      peakGroups,
+      from: peakResult.from,
+      to: peakResult.to,
+      suggestions,
+    };
   }
 
   static async listHistory(

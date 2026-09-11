@@ -4,6 +4,7 @@ import { requireAuth } from "../middleware/auth";
 import { requireRole } from "../middleware/rbac";
 import { departmentScope } from "../middleware/scope";
 import {
+  generateQuotaSuggestionsSchema,
   listQuotaHistoryQuerySchema,
   listQuotasQuerySchema,
   updateQuotaSchema,
@@ -51,6 +52,36 @@ router.get(
         )
       ) {
         res.status(403).json({ error: error.message });
+      } else {
+        res.status(500).json({ error: "Internal server error" });
+      }
+    }
+  },
+);
+
+// POST /api/quotas/suggestions - Generate automatic quota suggestions
+// CENTRAL_STORE_OFFICER and SYSTEM_ADMIN only
+router.post(
+  "/quotas/suggestions",
+  requireAuth,
+  requireRole("CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const validated = generateQuotaSuggestionsSchema.parse(req.body);
+
+      const result = await QuotaService.generateSuggestions(validated);
+
+      res.status(200).json(result);
+    } catch (error) {
+      if (error instanceof ZodError) {
+        res.status(400).json({
+          error: error.issues[0]?.message ?? "Invalid request body",
+        });
+      } else if (
+        error instanceof Error &&
+        error.message.includes("Department not found")
+      ) {
+        res.status(404).json({ error: error.message });
       } else {
         res.status(500).json({ error: "Internal server error" });
       }
