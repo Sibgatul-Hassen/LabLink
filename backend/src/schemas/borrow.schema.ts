@@ -62,3 +62,17 @@ export const findLendersQuerySchema = z
   });
 
 export type FindLendersQuery = z.infer<typeof findLendersQuerySchema>;
+
+export const approveBorrowSchema = z.object({
+  approvedQty: z.coerce
+    .number()
+    .int("Quantity must be a whole number")
+    .positive("Approved quantity must be at least 1"),
+});
+
+export const rejectBorrowSchema = z.object({
+  reason: z.string().min(1, "A reason is required").max(1000),
+});
+
+export type ApproveBorrowRequest = z.infer<typeof approveBorrowSchema>;
+export type RejectBorrowRequest = z.infer<typeof rejectBorrowSchema>;

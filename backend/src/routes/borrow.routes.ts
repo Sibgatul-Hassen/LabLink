@@ -4,9 +4,11 @@ import { ZodError } from "zod";
 import { requireAuth } from "../middleware/auth";
 import { requireRole } from "../middleware/rbac";
 import {
+  approveBorrowSchema,
   createBorrowRequestSchema,
   findLendersQuerySchema,
   listBorrowRequestsQuerySchema,
+  rejectBorrowSchema,
 } from "../schemas/borrow.schema";
 import { BorrowActor, BorrowService } from "../services/borrow.service";
 import { AuthenticatedRequest } from "../types";
@@ -22,9 +24,17 @@ const NOT_FOUND_MESSAGES = [
 
 const FORBIDDEN_MESSAGES = [
   "You can only raise borrow requests for your own department",
+  "Only the lending department can approve this request",
+  "Only the lending department can reject this request",
 ];
 
-const BAD_REQUEST_MESSAGES = ["A department cannot borrow from itself"];
+const BAD_REQUEST_MESSAGES = [
+  "A department cannot borrow from itself",
+  "Only a requested borrow can be approved",
+  "Only a requested borrow can be rejected",
+  "Approved quantity must be at least 1 and no more than the requested quantity",
+  "A reason is required to reject a borrow request",
+];
 
 function handleBorrowError(error: unknown, res: Response): void {
   if (error instanceof ZodError) {
@@ -215,6 +225,64 @@ router.get(
 
       const borrowRequest = await BorrowService.getBorrowRequestById(
         req.params.id,
+        actor,
+      );
+
+      res.status(200).json({ data: borrowRequest });
+    } catch (error) {
+      handleBorrowError(error, res);
+    }
+  },
+);
+
+// Task 5.5. "Only the lender department's user can approve/reject" is
+// checked inside the service against the full actor, the same way
+// createBorrowRequest's own department check is — not here, since it needs
+// the loaded BorrowRequest's lenderDeptId to compare against.
+router.post(
+  "/borrow-requests/:id/approve",
+  requireAuth,
+  requireRole("DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const actor = actorFrom(req);
+
+      if (!actor) {
+        res.status(401).json({ error: "Not authenticated" });
+        return;
+      }
+
+      const validated = approveBorrowSchema.parse(req.body);
+      const borrowRequest = await BorrowService.approveBorrow(
+        req.params.id,
+        validated.approvedQty,
+        actor,
+      );
+
+      res.status(200).json({ data: borrowRequest });
+    } catch (error) {
+      handleBorrowError(error, res);
+    }
+  },
+);
+
+router.post(
+  "/borrow-requests/:id/reject",
+  requireAuth,
+  requireRole("DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const actor = actorFrom(req);
+
+      if (!actor) {
+        res.status(401).json({ error: "Not authenticated" });
+        return;
+      }
+
+      const validated = rejectBorrowSchema.parse(req.body);
+      const borrowRequest = await BorrowService.rejectBorrow(
+        req.params.id,
+        validated.reason,
         actor,
       );
 
