@@ -4,6 +4,7 @@ import { ZodError } from "zod";
 import { requireAuth } from "../middleware/auth";
 import { requireRole } from "../middleware/rbac";
 import {
+  aggregatePurchaseRequestsSchema,
   createPurchaseRequestSchema,
   listPurchaseRequestsQuerySchema,
 } from "../schemas/purchase.schema";
@@ -16,6 +17,7 @@ const NOT_FOUND_MESSAGES = [
   "Purchase request not found",
   "Component not found",
   "Requisition not found",
+  "No pending purchase requests found for this component",
 ];
 
 function handlePurchaseError(error: unknown, res: Response): void {
@@ -76,6 +78,29 @@ router.post(
       );
 
       res.status(201).json({ data: purchaseRequest });
+    } catch (error) {
+      handlePurchaseError(error, res);
+    }
+  },
+);
+
+// Task 5.10. Manual trigger — createPurchaseRequest already auto-aggregates
+// on every create, but this covers requests that got out of sync some other
+// way (a batch import, a bug, direct DB work). Gated to the office roles
+// that actually manage purchasing, unlike create itself which lab
+// assistants and dept store heads can also do.
+router.post(
+  "/purchase-requests/aggregate",
+  requireAuth,
+  requireRole("CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const validated = aggregatePurchaseRequestsSchema.parse(req.body);
+      const purchaseRequest = await PurchaseService.aggregatePurchaseRequests(
+        validated.componentId,
+      );
+
+      res.status(200).json({ data: purchaseRequest });
     } catch (error) {
       handlePurchaseError(error, res);
     }

@@ -83,11 +83,15 @@ export class PurchaseService {
   /**
    * Task 5.8. Creates the PurchaseRequest and its first ApprovalStep
    * together as one nested write, the same way createBorrowRequest creates
-   * a BorrowRequest and its lines — atomic without needing an explicit
-   * transaction. Accepts the same optional transaction client every other
-   * multi-tier-aware method in this codebase does, so tier 4 (task 5.9) can
-   * call this from inside the resolver's own Serializable transaction and
-   * have it become part of that same transaction rather than a separate one.
+   * a BorrowRequest and its lines. Accepts the same optional transaction
+   * client every other multi-tier-aware method in this codebase does, so
+   * tier 4 (task 5.9) can call this from inside the resolver's own
+   * Serializable transaction and have it become part of that same
+   * transaction rather than a separate one.
+   *
+   * Task 5.10: after creating, always calls aggregatePurchaseRequests() for
+   * the same component — see that method for why, and why the return value
+   * here may therefore be an older request, not the one just created.
    */
   static async createPurchaseRequest(
     data: CreatePurchaseRequestInput,
@@ -112,7 +116,7 @@ export class PurchaseService {
       }
     }
 
-    return client.purchaseRequest.create({
+    await client.purchaseRequest.create({
       data: {
         requisitionId: data.requisitionId ?? null,
         componentId: data.componentId,
@@ -132,6 +136,100 @@ export class PurchaseService {
           ],
         },
       },
+    });
+
+    // Task 5.10 — fold this into any other still-PENDING request for the
+    // same component rather than leaving duplicates lying around. Always
+    // safe to call: with nothing else pending, it just returns what was
+    // created above unchanged.
+    return this.aggregatePurchaseRequests(data.componentId, client);
+  }
+
+  /**
+   * Task 5.10. PurchaseRequest has neither a cancelledReason nor a
+   * mergedIntoId column — the brief asked me to check, and neither exists.
+   * So a merged-away duplicate is marked CANCELLED (preserving the audit
+   * trail this codebase always keeps for a status change, rather than a
+   * hard delete) and gets "merged into <survivor id>" appended to its own
+   * first ApprovalStep's remarks — the only free-text field either model
+   * has, the same repurposing createPurchaseRequest already relies on for
+   * the create-time `reason`.
+   *
+   * The oldest PENDING request for the component survives and absorbs
+   * every other PENDING request's qtyNeeded; its own first-step remarks
+   * gets a matching note about the aggregation. Safe to call at any time,
+   * including when there is only one (or zero) PENDING request — it either
+   * no-ops and returns that one, or throws "not found" for zero.
+   */
+  static async aggregatePurchaseRequests(
+    componentId: string,
+    client: AvailabilityQueryClient = prisma,
+  ): Promise<PurchaseRequestWithRelations> {
+    const pending = await client.purchaseRequest.findMany({
+      where: { componentId, status: "PENDING" },
+      include: { steps: true },
+      orderBy: { createdAt: "asc" },
+    });
+
+    if (pending.length === 0) {
+      throw new Error("No pending purchase requests found for this component");
+    }
+
+    const [survivor, ...duplicates] = pending;
+
+    if (duplicates.length > 0) {
+      const totalQty = pending.reduce((sum, pr) => sum + pr.qtyNeeded, 0);
+
+      await client.purchaseRequest.update({
+        where: { id: survivor.id },
+        data: { qtyNeeded: totalQty },
+      });
+
+      const survivorStep = survivor.steps.find((step) => step.level === 1);
+
+      if (survivorStep) {
+        const note =
+          `Aggregated ${duplicates.length} other pending request(s) for ` +
+          `this component; qtyNeeded combined from ${survivor.qtyNeeded} ` +
+          `to ${totalQty}.`;
+
+        await client.approvalStep.update({
+          where: { id: survivorStep.id },
+          data: {
+            remarks: survivorStep.remarks
+              ? `${survivorStep.remarks}\n${note}`
+              : note,
+          },
+        });
+      }
+
+      for (const duplicate of duplicates) {
+        await client.purchaseRequest.update({
+          where: { id: duplicate.id },
+          data: { status: "CANCELLED" },
+        });
+
+        const duplicateStep = duplicate.steps.find(
+          (step) => step.level === 1,
+        );
+
+        if (duplicateStep) {
+          const note = `Merged into purchase request ${survivor.id}.`;
+
+          await client.approvalStep.update({
+            where: { id: duplicateStep.id },
+            data: {
+              remarks: duplicateStep.remarks
+                ? `${duplicateStep.remarks}\n${note}`
+                : note,
+            },
+          });
+        }
+      }
+    }
+
+    return client.purchaseRequest.findUniqueOrThrow({
+      where: { id: survivor.id },
       include: purchaseRequestInclude,
     });
   }

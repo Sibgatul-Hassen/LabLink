@@ -27,9 +27,16 @@ export const listPurchaseRequestsQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(100).default(20),
 });
 
+export const aggregatePurchaseRequestsSchema = z.object({
+  componentId: z.string().min(1, "Component is required"),
+});
+
 export type CreatePurchaseRequestInput = z.infer<
   typeof createPurchaseRequestSchema
 >;
 export type ListPurchaseRequestsQuery = z.infer<
   typeof listPurchaseRequestsQuerySchema
+>;
+export type AggregatePurchaseRequestsInput = z.infer<
+  typeof aggregatePurchaseRequestsSchema
 >;

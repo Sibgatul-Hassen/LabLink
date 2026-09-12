@@ -14,7 +14,21 @@ app.use("/api", authRouter);
 app.use("/api", purchaseRouter);
 
 const testDepartmentCodes = ["TEST-PUR-DEPT-A", "TEST-PUR-DEPT-B"];
-const testComponentCode = "TEST-PUR-COMP";
+
+// One component per describe block that creates purchase requests, so that
+// Task 5.10's auto-aggregation (every createPurchaseRequest call folds into
+// any other PENDING request for the same component) can't merge requests
+// meant to stay independent across blocks.
+const testComponentCodes = [
+  "TEST-PUR-COMP",
+  "TEST-PUR-COMP-LIST",
+  "TEST-PUR-COMP-LIST-OTHER",
+  "TEST-PUR-COMP-GET",
+  "TEST-PUR-COMP-GET-OTHER",
+  "TEST-PUR-COMP-AGG",
+  "TEST-PUR-COMP-AGG-MANUAL",
+];
+
 const testEmails = [
   "pur-labasst@test.com",
   "pur-other-labasst@test.com",
@@ -27,9 +41,11 @@ async function cleanupTestData() {
   // needed. PurchaseRequest.raisedById is a bare string column with no
   // declared @relation to User, so it carries no FK to worry about either.
   await prisma.purchaseRequest.deleteMany({
-    where: { component: { code: testComponentCode } },
+    where: { component: { code: { in: testComponentCodes } } },
   });
-  await prisma.component.deleteMany({ where: { code: testComponentCode } });
+  await prisma.component.deleteMany({
+    where: { code: { in: testComponentCodes } },
+  });
   await prisma.user.deleteMany({ where: { email: { in: testEmails } } });
   await prisma.department.deleteMany({
     where: { code: { in: testDepartmentCodes } },
@@ -38,6 +54,15 @@ async function cleanupTestData() {
 
 describe("Purchase Request API Integration Tests", () => {
   let componentId: string;
+  let listComponentId: string;
+  let listOtherComponentId: string;
+  let getComponentId: string;
+  let getOtherComponentId: string;
+  let aggComponentId: string;
+  let manualAggComponentId: string;
+
+  let labAsstUserId: string;
+  let otherLabAsstUserId: string;
 
   let labAsstToken: string;
   let otherLabAsstToken: string;
@@ -55,19 +80,37 @@ describe("Purchase Request API Integration Tests", () => {
       data: { code: testDepartmentCodes[1], name: "Purchase Test Dept B" },
     });
 
-    const component = await prisma.component.create({
-      data: {
-        code: testComponentCode,
-        name: "Purchase Test Component",
-        category: "Test",
-        sizeClass: "SMALL",
-      },
-    });
+    const [
+      component,
+      listComponent,
+      listOtherComponent,
+      getComponent,
+      getOtherComponent,
+      aggComponent,
+      manualAggComponent,
+    ] = await Promise.all(
+      testComponentCodes.map((code, index) =>
+        prisma.component.create({
+          data: {
+            code,
+            name: `Purchase Test Component ${index}`,
+            category: "Test",
+            sizeClass: "SMALL",
+          },
+        }),
+      ),
+    );
     componentId = component.id;
+    listComponentId = listComponent.id;
+    listOtherComponentId = listOtherComponent.id;
+    getComponentId = getComponent.id;
+    getOtherComponentId = getOtherComponent.id;
+    aggComponentId = aggComponent.id;
+    manualAggComponentId = manualAggComponent.id;
 
     const hashedPassword = await bcryptjs.hash("test123", 10);
 
-    await prisma.user.create({
+    const labAsstUser = await prisma.user.create({
       data: {
         email: "pur-labasst@test.com",
         passwordHash: hashedPassword,
@@ -76,8 +119,9 @@ describe("Purchase Request API Integration Tests", () => {
         departmentId: deptA.id,
       },
     });
+    labAsstUserId = labAsstUser.id;
 
-    await prisma.user.create({
+    const otherLabAsstUser = await prisma.user.create({
       data: {
         email: "pur-other-labasst@test.com",
         passwordHash: hashedPassword,
@@ -86,6 +130,7 @@ describe("Purchase Request API Integration Tests", () => {
         departmentId: deptB.id,
       },
     });
+    otherLabAsstUserId = otherLabAsstUser.id;
 
     await prisma.user.create({
       data: {
@@ -197,14 +242,18 @@ describe("Purchase Request API Integration Tests", () => {
       const own = await request(app)
         .post("/api/purchase-requests")
         .set("Authorization", `Bearer ${labAsstToken}`)
-        .send({ componentId, qtyRequested: 3, reason: "Own request" });
+        .send({
+          componentId: listComponentId,
+          qtyRequested: 3,
+          reason: "Own request",
+        });
       ownPurchaseRequestId = own.body.data.id;
 
       const other = await request(app)
         .post("/api/purchase-requests")
         .set("Authorization", `Bearer ${otherLabAsstToken}`)
         .send({
-          componentId,
+          componentId: listOtherComponentId,
           qtyRequested: 4,
           reason: "Other dept's request",
         });
@@ -241,7 +290,11 @@ describe("Purchase Request API Integration Tests", () => {
       const created = await request(app)
         .post("/api/purchase-requests")
         .set("Authorization", `Bearer ${labAsstToken}`)
-        .send({ componentId, qtyRequested: 7, reason: "Detail test" });
+        .send({
+          componentId: getComponentId,
+          qtyRequested: 7,
+          reason: "Detail test",
+        });
 
       const res = await request(app)
         .get(`/api/purchase-requests/${created.body.data.id}`)
@@ -259,13 +312,141 @@ describe("Purchase Request API Integration Tests", () => {
       const created = await request(app)
         .post("/api/purchase-requests")
         .set("Authorization", `Bearer ${otherLabAsstToken}`)
-        .send({ componentId, qtyRequested: 2, reason: "Scope test" });
+        .send({
+          componentId: getOtherComponentId,
+          qtyRequested: 2,
+          reason: "Scope test",
+        });
 
       const res = await request(app)
         .get(`/api/purchase-requests/${created.body.data.id}`)
         .set("Authorization", `Bearer ${labAsstToken}`);
 
       expect(res.status).toBe(404);
+    });
+  });
+
+  describe("AGGREGATION - Task 5.10", () => {
+    it("auto-merges two dept's pending requests for the same component into one on create", async () => {
+      const first = await request(app)
+        .post("/api/purchase-requests")
+        .set("Authorization", `Bearer ${labAsstToken}`)
+        .send({
+          componentId: aggComponentId,
+          qtyRequested: 5,
+          reason: "Dept A short on LEDs",
+        });
+      expect(first.status).toBe(201);
+      const firstId = first.body.data.id;
+
+      const second = await request(app)
+        .post("/api/purchase-requests")
+        .set("Authorization", `Bearer ${otherLabAsstToken}`)
+        .send({
+          componentId: aggComponentId,
+          qtyRequested: 8,
+          reason: "Dept B short on LEDs",
+        });
+      expect(second.status).toBe(201);
+
+      // Auto-aggregation folds the new request into the oldest survivor, so
+      // the response for the second create is the same (now-updated) row,
+      // not a distinct new one.
+      expect(second.body.data.id).toBe(firstId);
+      expect(second.body.data.qtyNeeded).toBe(13);
+
+      const pending = await prisma.purchaseRequest.findMany({
+        where: { componentId: aggComponentId, status: "PENDING" },
+      });
+      expect(pending).toHaveLength(1);
+      expect(pending[0].id).toBe(firstId);
+      expect(pending[0].qtyNeeded).toBe(13);
+
+      const cancelled = await prisma.purchaseRequest.findMany({
+        where: { componentId: aggComponentId, status: "CANCELLED" },
+      });
+      expect(cancelled).toHaveLength(1);
+    });
+
+    it("manually aggregates pending requests via POST /purchase-requests/aggregate", async () => {
+      // Auto-aggregation means the API itself can never leave two PENDING
+      // rows for the same component lying around, so exercising the manual
+      // endpoint requires seeding duplicates directly, bypassing the API —
+      // e.g. a batch import or direct DB work is the scenario this endpoint
+      // is for. Explicit createdAt values make "oldest wins" deterministic.
+      const older = await prisma.purchaseRequest.create({
+        data: {
+          componentId: manualAggComponentId,
+          qtyNeeded: 3,
+          raisedById: labAsstUserId,
+          status: "PENDING",
+          currentLevel: 1,
+          createdAt: new Date(Date.now() - 60_000),
+          steps: {
+            create: [
+              {
+                level: 1,
+                approverRole: "CENTRAL_STORE_OFFICER",
+                decision: "PENDING",
+                dueAt: new Date(Date.now() + 1000 * 60 * 60),
+                remarks: "Older request",
+              },
+            ],
+          },
+        },
+      });
+
+      const newer = await prisma.purchaseRequest.create({
+        data: {
+          componentId: manualAggComponentId,
+          qtyNeeded: 6,
+          raisedById: otherLabAsstUserId,
+          status: "PENDING",
+          currentLevel: 1,
+          steps: {
+            create: [
+              {
+                level: 1,
+                approverRole: "CENTRAL_STORE_OFFICER",
+                decision: "PENDING",
+                dueAt: new Date(Date.now() + 1000 * 60 * 60),
+                remarks: "Newer request",
+              },
+            ],
+          },
+        },
+      });
+
+      const res = await request(app)
+        .post("/api/purchase-requests/aggregate")
+        .set("Authorization", `Bearer ${centralToken}`)
+        .send({ componentId: manualAggComponentId });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.id).toBe(older.id);
+      expect(res.body.data.qtyNeeded).toBe(9);
+
+      const cancelledNewer = await prisma.purchaseRequest.findUnique({
+        where: { id: newer.id },
+      });
+      expect(cancelledNewer?.status).toBe("CANCELLED");
+    });
+
+    it("rejects unauthenticated aggregate requests", async () => {
+      const res = await request(app)
+        .post("/api/purchase-requests/aggregate")
+        .send({ componentId: aggComponentId });
+
+      expect(res.status).toBe(401);
+    });
+
+    it("is 403 for a role not allowed to aggregate", async () => {
+      const res = await request(app)
+        .post("/api/purchase-requests/aggregate")
+        .set("Authorization", `Bearer ${labAsstToken}`)
+        .send({ componentId: aggComponentId });
+
+      expect(res.status).toBe(403);
     });
   });
 });
