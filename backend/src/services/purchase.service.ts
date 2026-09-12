@@ -201,6 +201,55 @@ export class PurchaseService {
   }
 
   /**
+   * Task 5.19. reorderPoint lives only on Stock (checked schema.prisma
+   * directly, per the brief's own instruction to verify) — not on
+   * Component, and DepartmentQuota has no such field either. Stock itself
+   * has no departmentId (componentId is @unique — the same single
+   * office-wide pool every other stock-affecting method in this codebase
+   * already treats it as), so there is no per-department reorder point to
+   * check: this takes componentId alone, not componentId+departmentId as
+   * the brief first proposed.
+   *
+   * Reuses createPurchaseRequest rather than re-implementing the ladder's
+   * first-step creation — which means an already-PENDING request for this
+   * component is folded into via Task 5.10's aggregatePurchaseRequests
+   * automatically, not duplicated. Requests enough to bring onHand back up
+   * to reorderPoint exactly (no schema field says how much to over-order).
+   *
+   * No-ops (returns null) when there's no Stock row yet for this component,
+   * or onHand is still at or above reorderPoint — the common case, so every
+   * caller can call this unconditionally without checking first.
+   */
+  static async checkReorderPoint(
+    componentId: string,
+    raisedById: string,
+    client: AvailabilityQueryClient = prisma,
+    context: { requisitionId?: string } = {},
+  ): Promise<PurchaseRequestWithRelations | null> {
+    const stock = await client.stock.findUnique({ where: { componentId } });
+
+    if (!stock || stock.onHand >= stock.reorderPoint) {
+      return null;
+    }
+
+    const qtyRequested = stock.reorderPoint - stock.onHand;
+
+    return this.createPurchaseRequest(
+      {
+        componentId,
+        qtyRequested,
+        reason:
+          `Auto-raised by the reorder-point check: on-hand stock ` +
+          `(${stock.onHand}) has dropped below the configured reorder ` +
+          `point (${stock.reorderPoint}).`,
+        requisitionId: context.requisitionId,
+      },
+      raisedById,
+      client,
+    );
+  }
+
+  /**
    * Task 5.10. PurchaseRequest has neither a cancelledReason nor a
    * mergedIntoId column — the brief asked me to check, and neither exists.
    * So a merged-away duplicate is marked CANCELLED (preserving the audit
