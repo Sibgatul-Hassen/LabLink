@@ -88,6 +88,13 @@ function handleRequisitionError(error: unknown, res: Response): void {
     return;
   }
 
+  // Task 5.18. Carries the componentId/expected/received counts, so it
+  // cannot live in a fixed-string array either.
+  if (error.message.startsWith("Return quantity mismatch")) {
+    res.status(400).json({ error: error.message });
+    return;
+  }
+
   res.status(500).json({ error: "Internal server error" });
 }
 

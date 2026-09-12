@@ -578,6 +578,31 @@ export class RequisitionService {
     );
 
     await prisma.$transaction(async (tx) => {
+      // Task 5.18. qtyIssued lives on RequisitionLine (set once, to
+      // qtyNeeded, by issueRequisition — never touched again by this
+      // method) rather than in the request body, so the Zod schema alone
+      // can't catch a return whose counts don't add up to what was
+      // actually issued. Checked for every item, before any mutation
+      // below, so one bad line rejects the whole request with nothing
+      // partially applied — not even for the other, otherwise-valid lines.
+      for (const item of data.items) {
+        const line = linesByComponent.get(item.componentId);
+
+        if (!line) {
+          throw new Error("Component not on this requisition");
+        }
+
+        const totalReturning =
+          item.goodQty + item.damagedQty + item.lostQty + item.usedUpQty;
+
+        if (totalReturning !== line.qtyIssued) {
+          throw new Error(
+            `Return quantity mismatch for component ${item.componentId}: ` +
+              `expected ${line.qtyIssued} (qtyIssued), received ${totalReturning}`,
+          );
+        }
+      }
+
       for (const item of data.items) {
         const line = linesByComponent.get(item.componentId);
 
