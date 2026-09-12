@@ -4,6 +4,7 @@ import { prisma } from "../lib/prisma";
 import { AvailabilityQueryClient } from "./availability.service";
 import {
   CreatePurchaseRequestInput,
+  DecidePurchaseRequestInput,
   ListPurchaseRequestsQuery,
 } from "../schemas/purchase.schema";
 
@@ -42,14 +43,22 @@ const URGENCY_RANK: Record<Urgency, number> = {
 };
 
 /**
- * Task 5.9's tier 4 always names this role as the first approver — there is
- * no field anywhere that derives it (ApprovalStep.approverRole has no
- * default), so this is this service's own policy: the central store is the
- * first line of purchasing authority, matching how it already gates every
- * other stock-funding action in this codebase (stock adjust/transfer,
- * component create).
+ * Task 5.12's 3-rung approval ladder, keyed by ApprovalStep.level:
+ * rung 1 (CENTRAL_STORE_OFFICER) confirms the department is really out,
+ * rung 2 (DEPT_STORE_HEAD) endorses the purchase, rung 3 (OFFICE_ADMIN)
+ * approves and buys. No field anywhere derives this (ApprovalStep.
+ * approverRole has no default) — it is this service's own policy.
  */
-const FIRST_APPROVAL_ROLE: Role = "CENTRAL_STORE_OFFICER";
+const RUNG_APPROVER_ROLES: Record<number, Role> = {
+  1: "CENTRAL_STORE_OFFICER",
+  2: "DEPT_STORE_HEAD",
+  3: "OFFICE_ADMIN",
+};
+
+const FINAL_RUNG_LEVEL = 3;
+
+/** Task 5.8's first-approver policy — now just rung 1 of the ladder. */
+const FIRST_APPROVAL_ROLE: Role = RUNG_APPROVER_ROLES[1];
 
 /** No SLA concept exists elsewhere in this codebase; a week is a simple,
  *  documented default for a first purchasing decision. */
@@ -445,5 +454,116 @@ export class PurchaseService {
     return this.sortByUrgency(atCurrentRung).map((pr) =>
       this.withComputedUrgency(pr),
     );
+  }
+
+  /**
+   * Task 5.13. The brief describes ApprovalStep's decision field as
+   * `status`, with a `decidedById` column — schema.prisma has neither:
+   * the real fields are `decision` (a Decision enum, not a plain status
+   * string) and `approverId` (checked directly, per the brief's own
+   * instruction to verify). Both are used here under their real names.
+   *
+   * "Role must match current rung's approverRole" is enforced literally —
+   * there is no SYSTEM_ADMIN override, even though SYSTEM_ADMIN is one of
+   * the route's allowed callers (see purchase.routes.ts): the brief states
+   * "Only the correct role for that rung may act" with no stated exception,
+   * and explicitly tests OFFICE_ADMIN being rejected for acting outside its
+   * own rung. Since no rung is ever assigned to SYSTEM_ADMIN, that means
+   * SYSTEM_ADMIN can never actually decide a purchase request today — flag
+   * this to the user if a break-glass override was actually intended.
+   */
+  static async decidePurchaseRequest(
+    purchaseRequestId: string,
+    decision: DecidePurchaseRequestInput,
+    actingUser: PurchaseActor,
+  ): Promise<PurchaseRequestWithRelations> {
+    return prisma.$transaction(async (tx) => {
+      const purchaseRequest = await tx.purchaseRequest.findUnique({
+        where: { id: purchaseRequestId },
+        include: { steps: true },
+      });
+
+      if (!purchaseRequest) {
+        throw new Error("Purchase request not found");
+      }
+
+      if (purchaseRequest.status !== "PENDING") {
+        throw new Error("Purchase request is not pending a decision");
+      }
+
+      const currentStep = purchaseRequest.steps.find(
+        (step) =>
+          step.level === purchaseRequest.currentLevel &&
+          step.decision === "PENDING",
+      );
+
+      if (!currentStep) {
+        throw new Error(
+          "No pending approval step found for this purchase request",
+        );
+      }
+
+      if (currentStep.approverRole !== actingUser.role) {
+        throw new Error(
+          "Role does not match the approver for this purchase request's current rung",
+        );
+      }
+
+      // Preserve whatever remarks the step already carried (the raiser's
+      // original reason at rung 1, or an aggregation note) and append the
+      // decider's own remarks rather than overwrite — same audit-trail
+      // philosophy Task 5.10's aggregation already uses for this field.
+      const remarks = decision.remarks
+        ? currentStep.remarks
+          ? `${currentStep.remarks}\n${decision.remarks}`
+          : decision.remarks
+        : currentStep.remarks;
+
+      await tx.approvalStep.update({
+        where: { id: currentStep.id },
+        data: {
+          decision: decision.action === "APPROVE" ? "APPROVED" : "REJECTED",
+          approverId: actingUser.id,
+          decidedAt: new Date(),
+          remarks,
+        },
+      });
+
+      if (decision.action === "REJECT") {
+        await tx.purchaseRequest.update({
+          where: { id: purchaseRequest.id },
+          data: { status: "REJECTED" },
+        });
+      } else if (purchaseRequest.currentLevel < FINAL_RUNG_LEVEL) {
+        const nextLevel = purchaseRequest.currentLevel + 1;
+
+        await tx.approvalStep.create({
+          data: {
+            purchaseRequestId: purchaseRequest.id,
+            level: nextLevel,
+            approverRole: RUNG_APPROVER_ROLES[nextLevel],
+            decision: "PENDING",
+            dueAt: new Date(Date.now() + FIRST_APPROVAL_SLA_MS),
+          },
+        });
+
+        await tx.purchaseRequest.update({
+          where: { id: purchaseRequest.id },
+          data: { currentLevel: nextLevel },
+        });
+      } else {
+        await tx.purchaseRequest.update({
+          where: { id: purchaseRequest.id },
+          data: { status: "APPROVED" },
+        });
+      }
+
+      const updated = await tx.purchaseRequest.findUniqueOrThrow({
+        where: { id: purchaseRequest.id },
+        include: purchaseRequestInclude,
+      });
+
+      return this.withComputedUrgency(updated);
+    });
   }
 }

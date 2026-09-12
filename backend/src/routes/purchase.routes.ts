@@ -6,6 +6,7 @@ import { requireRole } from "../middleware/rbac";
 import {
   aggregatePurchaseRequestsSchema,
   createPurchaseRequestSchema,
+  decidePurchaseRequestSchema,
   listPurchaseRequestsQuerySchema,
 } from "../schemas/purchase.schema";
 import { PurchaseActor, PurchaseService } from "../services/purchase.service";
@@ -18,6 +19,19 @@ const NOT_FOUND_MESSAGES = [
   "Component not found",
   "Requisition not found",
   "No pending purchase requests found for this component",
+  "No pending approval step found for this purchase request",
+];
+
+// Task 5.13. Unlike every prior check on this router, "does this actor's
+// role match the current rung" can only be known after loading the request
+// — requireRole alone can't express it — so it's a runtime 403 from the
+// service, not a route-level gate.
+const FORBIDDEN_MESSAGES = [
+  "Role does not match the approver for this purchase request's current rung",
+];
+
+const BAD_REQUEST_MESSAGES = [
+  "Purchase request is not pending a decision",
 ];
 
 function handlePurchaseError(error: unknown, res: Response): void {
@@ -35,6 +49,16 @@ function handlePurchaseError(error: unknown, res: Response): void {
 
   if (NOT_FOUND_MESSAGES.includes(error.message)) {
     res.status(404).json({ error: error.message });
+    return;
+  }
+
+  if (FORBIDDEN_MESSAGES.includes(error.message)) {
+    res.status(403).json({ error: error.message });
+    return;
+  }
+
+  if (BAD_REQUEST_MESSAGES.includes(error.message)) {
+    res.status(400).json({ error: error.message });
     return;
   }
 
@@ -173,6 +197,43 @@ router.get(
 
       const purchaseRequest = await PurchaseService.getPurchaseRequest(
         req.params.id,
+        actor,
+      );
+
+      res.status(200).json({ data: purchaseRequest });
+    } catch (error) {
+      handlePurchaseError(error, res);
+    }
+  },
+);
+
+// Task 5.13. All four roles may attempt this — which one is actually
+// allowed to act depends on which rung the request is currently at, which
+// PurchaseService.decidePurchaseRequest checks at runtime (see
+// FORBIDDEN_MESSAGES above); requireRole here only screens out roles that
+// could never hold any rung (e.g. STUDENT, LAB_ASSISTANT).
+router.post(
+  "/purchase-requests/:id/decide",
+  requireAuth,
+  requireRole(
+    "CENTRAL_STORE_OFFICER",
+    "DEPT_STORE_HEAD",
+    "OFFICE_ADMIN",
+    "SYSTEM_ADMIN",
+  ),
+  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const actor = actorFrom(req);
+
+      if (!actor) {
+        res.status(401).json({ error: "Not authenticated" });
+        return;
+      }
+
+      const validated = decidePurchaseRequestSchema.parse(req.body);
+      const purchaseRequest = await PurchaseService.decidePurchaseRequest(
+        req.params.id,
+        validated,
         actor,
       );
 
