@@ -878,4 +878,114 @@ describe("Borrow Request API Integration Tests", () => {
       expect(res.status).toBe(403);
     });
   });
+
+  describe("RETURN - POST /api/borrow-requests/:id/return", () => {
+    // Same unique-constraint concern as the earlier decision-flow blocks.
+    beforeEach(async () => {
+      await prisma.requisitionLine.deleteMany({
+        where: { requisitionId: requisitionBorrowerId, componentId },
+      });
+    });
+
+    async function createBorrowRequest(
+      status: "REQUESTED" | "APPROVED" | "HANDED_OVER",
+      qty = 5,
+    ) {
+      return prisma.borrowRequest.create({
+        data: {
+          requisitionId: requisitionBorrowerId,
+          lenderDeptId: deptLenderId,
+          borrowerDeptId: deptBorrowerId,
+          returnBy: new Date("2027-07-05T00:00:00.000Z"),
+          status,
+          lines: {
+            create: [
+              {
+                componentId,
+                qtyRequested: qty,
+                qtyApproved: status === "REQUESTED" ? 0 : qty,
+              },
+            ],
+          },
+        },
+      });
+    }
+
+    it("rejects unauthenticated requests", async () => {
+      const br = await createBorrowRequest("HANDED_OVER");
+
+      const res = await request(app).post(
+        `/api/borrow-requests/${br.id}/return`,
+      );
+
+      expect(res.status).toBe(401);
+    });
+
+    it("is 403 for a disallowed role", async () => {
+      const br = await createBorrowRequest("HANDED_OVER");
+
+      const res = await request(app)
+        .post(`/api/borrow-requests/${br.id}/return`)
+        .set("Authorization", `Bearer ${studentToken}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it("is 400 when returning a request that has not been handed over", async () => {
+      const br = await createBorrowRequest("APPROVED");
+
+      const res = await request(app)
+        .post(`/api/borrow-requests/${br.id}/return`)
+        .set("Authorization", `Bearer ${deptStoreHeadToken}`);
+
+      expect(res.status).toBe(400);
+    });
+
+    it("returns: paired StockMovements, status RETURNED, qtyReturned recorded", async () => {
+      // A known baseline so the "no net change" assertion below is meaningful.
+      await prisma.stock.upsert({
+        where: { componentId },
+        update: { onHand: 15 },
+        create: { componentId, onHand: 15, spareQty: 0, reorderPoint: 0 },
+      });
+
+      const br = await createBorrowRequest("HANDED_OVER", 4);
+
+      const res = await request(app)
+        .post(`/api/borrow-requests/${br.id}/return`)
+        .set("Authorization", `Bearer ${deptStoreHeadToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.status).toBe("RETURNED");
+      expect(res.body.data.lines[0].qtyReturned).toBe(4);
+
+      const movements = await prisma.stockMovement.findMany({
+        where: { refType: "BORROW", refId: br.id },
+        orderBy: { qty: "asc" },
+      });
+
+      expect(movements).toHaveLength(2);
+      expect(movements[0].qty).toBe(-4);
+      expect(movements[0].fromDeptId).toBe(deptBorrowerId);
+      expect(movements[0].toDeptId).toBe(deptLenderId);
+      expect(movements[1].qty).toBe(4);
+      expect(movements[1].fromDeptId).toBe(deptBorrowerId);
+      expect(movements[1].toDeptId).toBe(deptLenderId);
+
+      // Same shared-pool reasoning as hand-over: no per-department Stock
+      // column, so the borrower-to-lender return nets to no onHand change.
+      const stock = await prisma.stock.findUnique({ where: { componentId } });
+      expect(stock?.onHand).toBe(15);
+    });
+
+    it("stops the lender from returning on behalf of the borrower", async () => {
+      const br = await createBorrowRequest("HANDED_OVER");
+
+      const res = await request(app)
+        .post(`/api/borrow-requests/${br.id}/return`)
+        .set("Authorization", `Bearer ${lenderHeadToken}`);
+
+      expect(res.status).toBe(403);
+    });
+  });
 });

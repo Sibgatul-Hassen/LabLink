@@ -617,4 +617,98 @@ export class BorrowService {
 
     return this.getBorrowRequestById(borrowRequestId, actor);
   }
+
+  // ─────────────── return ───────────────
+
+  /**
+   * Task 5.7. BorrowRequest has no returnedAt/returnedById columns — only
+   * returnBy (the deadline set at creation, not an actual return timestamp)
+   * and the same decidedById/decidedAt pair approveBorrow already stamped.
+   * As with handOverBorrow, overwriting that pair here would erase the
+   * approval record for no replacement, so it is left alone; who returned it
+   * and when is recorded the same way hand-over is, via the StockMovement
+   * rows' own performedById/createdAt. BorrowLine.qtyReturned — the real
+   * per-line counterpart to qtyApproved — records the returned quantity.
+   *
+   * Same shared-pool reasoning as handOverBorrow: Stock.onHand has no
+   * per-department column, so "borrower dept -> lender dept" cannot be two
+   * separate physical counters. issueRequisition already accounted for this
+   * qty against the shared pool when the borrower's requisition was issued,
+   * so onHand is left untouched here too — the two StockMovement rows are
+   * the audit trail, not a real balance change.
+   */
+  static async returnBorrow(
+    borrowRequestId: string,
+    actor: BorrowActor,
+  ): Promise<BorrowRequestWithRelations> {
+    const borrowRequest = await prisma.borrowRequest.findUnique({
+      where: { id: borrowRequestId },
+      include: { lines: true },
+    });
+
+    if (!borrowRequest) {
+      throw new Error("Borrow request not found");
+    }
+
+    if (borrowRequest.status !== "HANDED_OVER") {
+      throw new Error("Only a handed-over borrow can be returned");
+    }
+
+    if (
+      !UNSCOPED_ROLES.includes(actor.role) &&
+      actor.departmentId !== borrowRequest.borrowerDeptId
+    ) {
+      throw new Error("Only the borrowing department can return this request");
+    }
+
+    const [line] = borrowRequest.lines;
+
+    if (!line || line.qtyApproved <= 0) {
+      throw new Error("This borrow request has no approved quantity to return");
+    }
+
+    const qty = line.qtyApproved;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.stockMovement.create({
+        data: {
+          componentId: line.componentId,
+          qty: -qty,
+          type: "RETURN",
+          fromDeptId: borrowRequest.borrowerDeptId,
+          toDeptId: borrowRequest.lenderDeptId,
+          refType: "BORROW",
+          refId: borrowRequestId,
+          performedById: actor.id,
+          note: "Return: released by borrowing department",
+        },
+      });
+
+      await tx.stockMovement.create({
+        data: {
+          componentId: line.componentId,
+          qty,
+          type: "RETURN",
+          fromDeptId: borrowRequest.borrowerDeptId,
+          toDeptId: borrowRequest.lenderDeptId,
+          refType: "BORROW",
+          refId: borrowRequestId,
+          performedById: actor.id,
+          note: "Return: received by lending department",
+        },
+      });
+
+      await tx.borrowLine.update({
+        where: { id: line.id },
+        data: { qtyReturned: qty },
+      });
+
+      await tx.borrowRequest.update({
+        where: { id: borrowRequestId },
+        data: { status: "RETURNED" },
+      });
+    });
+
+    return this.getBorrowRequestById(borrowRequestId, actor);
+  }
 }
