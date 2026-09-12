@@ -36,6 +36,9 @@ const testComponentCodes = [
   "TEST-PUR-COMP-DECIDE-LADDER",
   "TEST-PUR-COMP-DECIDE-REJECT",
   "TEST-PUR-COMP-DECIDE-FULL",
+  "TEST-PUR-COMP-RECEIVE-WRONGSTATUS",
+  "TEST-PUR-COMP-RECEIVE-HAPPY",
+  "TEST-PUR-COMP-RECEIVE-PARTIAL",
 ];
 
 const testEmails = [
@@ -52,6 +55,15 @@ async function cleanupTestData() {
   // needed. PurchaseRequest.raisedById is a bare string column with no
   // declared @relation to User, so it carries no FK to worry about either.
   await prisma.purchaseRequest.deleteMany({
+    where: { component: { code: { in: testComponentCodes } } },
+  });
+  // Task 5.15's receive tests create Stock/StockMovement rows against these
+  // same test components — both FK to Component with no cascade, so they
+  // must go before component.deleteMany can succeed.
+  await prisma.stockMovement.deleteMany({
+    where: { component: { code: { in: testComponentCodes } } },
+  });
+  await prisma.stock.deleteMany({
     where: { component: { code: { in: testComponentCodes } } },
   });
   await prisma.component.deleteMany({
@@ -79,6 +91,9 @@ describe("Purchase Request API Integration Tests", () => {
   let decideLadderComponentId: string;
   let decideRejectComponentId: string;
   let decideFullComponentId: string;
+  let receiveWrongStatusComponentId: string;
+  let receiveHappyComponentId: string;
+  let receivePartialComponentId: string;
 
   let labAsstUserId: string;
   let otherLabAsstUserId: string;
@@ -117,6 +132,9 @@ describe("Purchase Request API Integration Tests", () => {
       decideLadderComponent,
       decideRejectComponent,
       decideFullComponent,
+      receiveWrongStatusComponent,
+      receiveHappyComponent,
+      receivePartialComponent,
     ] = await Promise.all(
       testComponentCodes.map((code, index) =>
         prisma.component.create({
@@ -144,6 +162,9 @@ describe("Purchase Request API Integration Tests", () => {
     decideLadderComponentId = decideLadderComponent.id;
     decideRejectComponentId = decideRejectComponent.id;
     decideFullComponentId = decideFullComponent.id;
+    receiveWrongStatusComponentId = receiveWrongStatusComponent.id;
+    receiveHappyComponentId = receiveHappyComponent.id;
+    receivePartialComponentId = receivePartialComponent.id;
 
     const hashedPassword = await bcryptjs.hash("test123", 10);
 
@@ -832,6 +853,144 @@ describe("Purchase Request API Integration Tests", () => {
         "DEPT_STORE_HEAD",
         "OFFICE_ADMIN",
       ]);
+    });
+  });
+
+  describe("RECEIVE - POST /api/purchase-requests/:id/receive - Task 5.15", () => {
+    let officeDepartmentId: string;
+
+    beforeAll(async () => {
+      // Reuse whatever office department already exists (real seed data
+      // normally has one); only create a stand-in when none does, so this
+      // never competes with a genuine office department for
+      // receiveGoods()'s findFirst({ isOffice: true }) lookup — same
+      // approach requisition.routes.test.ts already uses for the same
+      // lookup elsewhere in this codebase. Not part of cleanupTestData:
+      // a reused office department must outlive this suite.
+      const existingOffice = await prisma.department.findFirst({
+        where: { isOffice: true, isActive: true },
+      });
+
+      officeDepartmentId = existingOffice
+        ? existingOffice.id
+        : (
+            await prisma.department.create({
+              data: {
+                code: "TEST-PUR-OFFICE",
+                name: "Purchase Test Office",
+                isOffice: true,
+              },
+            })
+          ).id;
+    });
+
+    async function createApprovedRequest(
+      componentId: string,
+      qtyRequested: number,
+    ): Promise<string> {
+      const created = await request(app)
+        .post("/api/purchase-requests")
+        .set("Authorization", `Bearer ${labAsstToken}`)
+        .send({ componentId, qtyRequested, reason: "Receive test" });
+      expect(created.status).toBe(201);
+      const id = created.body.data.id;
+
+      for (const token of [
+        centralToken,
+        deptStoreHeadToken,
+        officeAdminToken,
+      ]) {
+        const res = await request(app)
+          .post(`/api/purchase-requests/${id}/decide`)
+          .set("Authorization", `Bearer ${token}`)
+          .send({ action: "APPROVE" });
+        expect(res.status).toBe(200);
+      }
+
+      return id;
+    }
+
+    it("rejects unauthenticated receive requests", async () => {
+      const res = await request(app)
+        .post("/api/purchase-requests/some-id/receive")
+        .send({ poNumber: "PO-1", qtyReceived: 5 });
+
+      expect(res.status).toBe(401);
+    });
+
+    it("is 403 for a role not allowed to receive goods", async () => {
+      const res = await request(app)
+        .post("/api/purchase-requests/some-id/receive")
+        .set("Authorization", `Bearer ${labAsstToken}`)
+        .send({ poNumber: "PO-1", qtyReceived: 5 });
+
+      expect(res.status).toBe(403);
+    });
+
+    it("is 400 for a purchase request that is not APPROVED", async () => {
+      const created = await request(app)
+        .post("/api/purchase-requests")
+        .set("Authorization", `Bearer ${labAsstToken}`)
+        .send({
+          componentId: receiveWrongStatusComponentId,
+          qtyRequested: 5,
+          reason: "Still pending",
+        });
+      expect(created.status).toBe(201);
+
+      const res = await request(app)
+        .post(`/api/purchase-requests/${created.body.data.id}/receive`)
+        .set("Authorization", `Bearer ${centralToken}`)
+        .send({ poNumber: "PO-2", qtyReceived: 5 });
+
+      expect(res.status).toBe(400);
+    });
+
+    it("increases office stock, creates a StockMovement, and marks status RECEIVED", async () => {
+      const id = await createApprovedRequest(receiveHappyComponentId, 10);
+
+      const res = await request(app)
+        .post(`/api/purchase-requests/${id}/receive`)
+        .set("Authorization", `Bearer ${centralToken}`)
+        .send({ poNumber: "PO-HAPPY-1", qtyReceived: 10 });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.status).toBe("RECEIVED");
+      expect(res.body.data.poNumber).toBe("PO-HAPPY-1");
+      expect(res.body.data.receivedQty).toBe(10);
+
+      const stock = await prisma.stock.findUnique({
+        where: { componentId: receiveHappyComponentId },
+      });
+      expect(stock?.onHand).toBe(10);
+
+      const movement = await prisma.stockMovement.findFirst({
+        where: { refType: "PURCHASE", refId: id },
+      });
+      expect(movement).not.toBeNull();
+      expect(movement?.type).toBe("PURCHASE");
+      expect(movement?.qty).toBe(10);
+      expect(movement?.toDeptId).toBe(officeDepartmentId);
+      expect(movement?.performedById).toBeTruthy();
+    });
+
+    it("allows a partial receipt (qtyReceived < qtyNeeded)", async () => {
+      const id = await createApprovedRequest(receivePartialComponentId, 20);
+
+      const res = await request(app)
+        .post(`/api/purchase-requests/${id}/receive`)
+        .set("Authorization", `Bearer ${centralToken}`)
+        .send({ poNumber: "PO-PARTIAL-1", qtyReceived: 8 });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.status).toBe("RECEIVED");
+      expect(res.body.data.qtyNeeded).toBe(20);
+      expect(res.body.data.receivedQty).toBe(8);
+
+      const stock = await prisma.stock.findUnique({
+        where: { componentId: receivePartialComponentId },
+      });
+      expect(stock?.onHand).toBe(8);
     });
   });
 });

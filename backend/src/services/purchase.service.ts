@@ -566,4 +566,85 @@ export class PurchaseService {
       return this.withComputedUrgency(updated);
     });
   }
+
+  /**
+   * Task 5.15. schema.prisma confirms PurchaseRequest.poNumber exists as
+   * named, but there is no receivedAt or receivedById column anywhere on
+   * it (checked directly, per the brief's own instruction to verify) —
+   * only poNumber and receivedQty. This is the exact situation
+   * handOverBorrow/returnBorrow already solved elsewhere in this codebase:
+   * rather than invent columns, who received the goods and when is
+   * recorded the same way every other stock-affecting action here does —
+   * the StockMovement row's own performedById/createdAt is the audit trail,
+   * not a field on PurchaseRequest itself.
+   *
+   * qtyReceived has no upper bound enforced against qtyNeeded — the brief
+   * only asks for partial receipt (qtyReceived < qtyNeeded) to work, and a
+   * supplier over-shipping is just as real a scenario, so this doesn't
+   * reject qtyReceived > qtyNeeded either.
+   */
+  static async receiveGoods(
+    purchaseRequestId: string,
+    poNumber: string,
+    qtyReceived: number,
+    actingUser: PurchaseActor,
+  ): Promise<PurchaseRequestWithRelations> {
+    return prisma.$transaction(async (tx) => {
+      const purchaseRequest = await tx.purchaseRequest.findUnique({
+        where: { id: purchaseRequestId },
+      });
+
+      if (!purchaseRequest) {
+        throw new Error("Purchase request not found");
+      }
+
+      if (purchaseRequest.status !== "APPROVED") {
+        throw new Error(
+          "Only an approved purchase request can receive goods",
+        );
+      }
+
+      const office = await tx.department.findFirst({
+        where: { isOffice: true },
+      });
+
+      if (!office) {
+        throw new Error("Office department not found");
+      }
+
+      await tx.stock.upsert({
+        where: { componentId: purchaseRequest.componentId },
+        update: { onHand: { increment: qtyReceived } },
+        create: {
+          componentId: purchaseRequest.componentId,
+          onHand: qtyReceived,
+        },
+      });
+
+      await tx.stockMovement.create({
+        data: {
+          componentId: purchaseRequest.componentId,
+          qty: qtyReceived,
+          type: "PURCHASE",
+          toDeptId: office.id,
+          refType: "PURCHASE",
+          refId: purchaseRequest.id,
+          performedById: actingUser.id,
+          note: `PO ${poNumber}`,
+        },
+      });
+
+      const updated = await tx.purchaseRequest.update({
+        where: { id: purchaseRequest.id },
+        data: {
+          poNumber,
+          receivedQty: qtyReceived,
+          status: "RECEIVED",
+        },
+        include: purchaseRequestInclude,
+      });
+
+      return this.withComputedUrgency(updated);
+    });
+  }
 }
