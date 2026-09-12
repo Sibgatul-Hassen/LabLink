@@ -314,4 +314,189 @@ export class BorrowService {
       orderBy: { createdAt: "desc" },
     });
   }
+
+  // ─────────────── approve / reject ───────────────
+
+  /**
+   * Finds the HELD, source-BORROW Allocation this borrow request's tier-3
+   * resolution created, if any. There is no direct FK from BorrowRequest to
+   * Allocation — the link is (requisitionId, componentId) -> RequisitionLine
+   * -> Allocation — so this walks it. A manually-created borrow request
+   * (POST /borrow-requests, not the resolver) has no such allocation, and
+   * that is expected: this returns null rather than throwing.
+   */
+  private static async findBorrowAllocation(
+    tx: Prisma.TransactionClient,
+    requisitionId: string,
+    componentId: string,
+    lenderDeptId: string,
+  ) {
+    const requisitionLine = await tx.requisitionLine.findFirst({
+      where: { requisitionId, componentId },
+    });
+
+    if (!requisitionLine) {
+      return null;
+    }
+
+    return tx.allocation.findFirst({
+      where: {
+        requisitionLineId: requisitionLine.id,
+        source: "BORROW",
+        sourceDeptId: lenderDeptId,
+        status: "HELD",
+      },
+    });
+  }
+
+  /**
+   * Task 5.5. BorrowRequest has no approvedQty/approvedById/approvedAt
+   * columns — the brief named fields that don't exist on this schema.
+   * The per-line approved amount is BorrowLine.qtyApproved (the real
+   * column for exactly this), and the request itself records who decided
+   * and when via the generic decidedById/decidedAt pair it already has for
+   * both approval and rejection.
+   *
+   * A borrow request created through this codebase always has exactly one
+   * line (the manual create endpoint's tests and the resolver's tier 3 both
+   * only ever produce one), and approvedQty is a single flat number, so this
+   * operates on that one line.
+   */
+  static async approveBorrow(
+    borrowRequestId: string,
+    approvedQty: number,
+    actor: BorrowActor,
+  ): Promise<BorrowRequestWithRelations> {
+    const borrowRequest = await prisma.borrowRequest.findUnique({
+      where: { id: borrowRequestId },
+      include: { lines: true },
+    });
+
+    if (!borrowRequest) {
+      throw new Error("Borrow request not found");
+    }
+
+    if (borrowRequest.status !== "REQUESTED") {
+      throw new Error("Only a requested borrow can be approved");
+    }
+
+    if (
+      !UNSCOPED_ROLES.includes(actor.role) &&
+      actor.departmentId !== borrowRequest.lenderDeptId
+    ) {
+      throw new Error("Only the lending department can approve this request");
+    }
+
+    const [line] = borrowRequest.lines;
+
+    if (!line) {
+      throw new Error("Borrow request has no lines");
+    }
+
+    if (approvedQty <= 0 || approvedQty > line.qtyRequested) {
+      throw new Error(
+        "Approved quantity must be at least 1 and no more than the requested quantity",
+      );
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.borrowRequest.update({
+        where: { id: borrowRequestId },
+        data: {
+          status: "APPROVED",
+          decidedById: actor.id,
+          decidedAt: new Date(),
+        },
+      });
+
+      await tx.borrowLine.update({
+        where: { id: line.id },
+        data: { qtyApproved: approvedQty },
+      });
+
+      const allocation = await this.findBorrowAllocation(
+        tx,
+        borrowRequest.requisitionId,
+        line.componentId,
+        borrowRequest.lenderDeptId,
+      );
+
+      if (allocation) {
+        await tx.allocation.update({
+          where: { id: allocation.id },
+          data: { qty: approvedQty },
+        });
+      }
+    });
+
+    return this.getBorrowRequestById(borrowRequestId, actor);
+  }
+
+  /**
+   * Rejects a REQUESTED borrow and releases whatever tier-3 allocations it
+   * was holding — the department that would have lent has said no, so
+   * those units are free for the resolver to try elsewhere on the next
+   * submit. The rejection reason goes in BorrowRequest.remarks; there is no
+   * separate rejectedReason/rejectedById/rejectedAt on this schema, so the
+   * same decidedById/decidedAt pair approveBorrow uses covers rejection too.
+   */
+  static async rejectBorrow(
+    borrowRequestId: string,
+    reason: string,
+    actor: BorrowActor,
+  ): Promise<BorrowRequestWithRelations> {
+    const borrowRequest = await prisma.borrowRequest.findUnique({
+      where: { id: borrowRequestId },
+      include: { lines: true },
+    });
+
+    if (!borrowRequest) {
+      throw new Error("Borrow request not found");
+    }
+
+    if (borrowRequest.status !== "REQUESTED") {
+      throw new Error("Only a requested borrow can be rejected");
+    }
+
+    if (
+      !UNSCOPED_ROLES.includes(actor.role) &&
+      actor.departmentId !== borrowRequest.lenderDeptId
+    ) {
+      throw new Error("Only the lending department can reject this request");
+    }
+
+    if (!reason.trim()) {
+      throw new Error("A reason is required to reject a borrow request");
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.borrowRequest.update({
+        where: { id: borrowRequestId },
+        data: {
+          status: "REJECTED",
+          decidedById: actor.id,
+          decidedAt: new Date(),
+          remarks: reason,
+        },
+      });
+
+      for (const line of borrowRequest.lines) {
+        const allocation = await this.findBorrowAllocation(
+          tx,
+          borrowRequest.requisitionId,
+          line.componentId,
+          borrowRequest.lenderDeptId,
+        );
+
+        if (allocation) {
+          await tx.allocation.update({
+            where: { id: allocation.id },
+            data: { status: "RELEASED" },
+          });
+        }
+      }
+    });
+
+    return this.getBorrowRequestById(borrowRequestId, actor);
+  }
 }

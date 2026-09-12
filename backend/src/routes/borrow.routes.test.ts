@@ -36,6 +36,17 @@ async function cleanupTestData() {
       ],
     },
   });
+  // Task 5.5's approve/reject tests attach real Allocation/RequisitionLine
+  // rows to prove the allocation gets updated/released — both must go
+  // before requisition/component or those deletes hit an FK violation.
+  await prisma.allocation.deleteMany({
+    where: {
+      requisitionLine: { component: { code: { in: testComponentCodes } } },
+    },
+  });
+  await prisma.requisitionLine.deleteMany({
+    where: { component: { code: { in: testComponentCodes } } },
+  });
   await prisma.requisition.deleteMany({
     where: { department: { code: { in: testDepartmentCodes } } },
   });
@@ -554,6 +565,178 @@ describe("Borrow Request API Integration Tests", () => {
 
       const ids = res.body.data.map((br: { id: string }) => br.id);
       expect(ids).not.toContain(brBorrowerLenderId);
+    });
+  });
+
+  describe("APPROVE / REJECT - POST /api/borrow-requests/:id/approve|reject", () => {
+    // RequisitionLine has @@unique([requisitionId, componentId]) — clear any
+    // line createLinkedAllocation left on the shared (requisitionBorrowerId,
+    // componentId) pair so each test starts clean. Allocation cascades.
+    beforeEach(async () => {
+      await prisma.requisitionLine.deleteMany({
+        where: { requisitionId: requisitionBorrowerId, componentId },
+      });
+    });
+
+    async function createFreshBorrowRequest(qtyRequested = 5) {
+      return prisma.borrowRequest.create({
+        data: {
+          requisitionId: requisitionBorrowerId,
+          lenderDeptId: deptLenderId,
+          borrowerDeptId: deptBorrowerId,
+          returnBy: new Date("2027-07-05T00:00:00.000Z"),
+          status: "REQUESTED",
+          lines: { create: [{ componentId, qtyRequested }] },
+        },
+      });
+    }
+
+    // Simulates what tier 3's resolver would have created for this borrow,
+    // so approve/reject have a real Allocation to update or release.
+    async function createLinkedAllocation(qty: number) {
+      const requisitionLine = await prisma.requisitionLine.create({
+        data: { requisitionId: requisitionBorrowerId, componentId, qtyNeeded: qty },
+      });
+
+      const allocation = await prisma.allocation.create({
+        data: {
+          requisitionLineId: requisitionLine.id,
+          sourceDeptId: deptLenderId,
+          qty,
+          source: "BORROW",
+          status: "HELD",
+        },
+      });
+
+      return allocation.id;
+    }
+
+    it("rejects unauthenticated requests", async () => {
+      const br = await createFreshBorrowRequest();
+
+      const approve = await request(app).post(
+        `/api/borrow-requests/${br.id}/approve`,
+      );
+      expect(approve.status).toBe(401);
+
+      const reject = await request(app).post(
+        `/api/borrow-requests/${br.id}/reject`,
+      );
+      expect(reject.status).toBe(401);
+    });
+
+    it("is 403 for a disallowed role", async () => {
+      const br = await createFreshBorrowRequest();
+
+      const approve = await request(app)
+        .post(`/api/borrow-requests/${br.id}/approve`)
+        .set("Authorization", `Bearer ${studentToken}`)
+        .send({ approvedQty: 5 });
+      expect(approve.status).toBe(403);
+
+      const reject = await request(app)
+        .post(`/api/borrow-requests/${br.id}/reject`)
+        .set("Authorization", `Bearer ${studentToken}`)
+        .send({ reason: "not needed" });
+      expect(reject.status).toBe(403);
+    });
+
+    it("is 400 when approving or rejecting a non-REQUESTED request", async () => {
+      const br = await createFreshBorrowRequest();
+
+      await prisma.borrowRequest.update({
+        where: { id: br.id },
+        data: { status: "APPROVED" },
+      });
+
+      const approve = await request(app)
+        .post(`/api/borrow-requests/${br.id}/approve`)
+        .set("Authorization", `Bearer ${lenderHeadToken}`)
+        .send({ approvedQty: 5 });
+      expect(approve.status).toBe(400);
+
+      const reject = await request(app)
+        .post(`/api/borrow-requests/${br.id}/reject`)
+        .set("Authorization", `Bearer ${lenderHeadToken}`)
+        .send({ reason: "changed my mind" });
+      expect(reject.status).toBe(400);
+    });
+
+    it("is 400 when the approved quantity exceeds the requested quantity", async () => {
+      const br = await createFreshBorrowRequest(5);
+
+      const res = await request(app)
+        .post(`/api/borrow-requests/${br.id}/approve`)
+        .set("Authorization", `Bearer ${lenderHeadToken}`)
+        .send({ approvedQty: 6 });
+
+      expect(res.status).toBe(400);
+    });
+
+    it("approves with a partial quantity and updates the linked allocation", async () => {
+      const br = await createFreshBorrowRequest(5);
+      const allocationId = await createLinkedAllocation(5);
+
+      const res = await request(app)
+        .post(`/api/borrow-requests/${br.id}/approve`)
+        .set("Authorization", `Bearer ${lenderHeadToken}`)
+        .send({ approvedQty: 3 });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.status).toBe("APPROVED");
+      expect(res.body.data.lines[0].qtyApproved).toBe(3);
+
+      const line = await prisma.borrowLine.findFirst({
+        where: { borrowRequestId: br.id },
+      });
+      expect(line?.qtyApproved).toBe(3);
+
+      const allocation = await prisma.allocation.findUnique({
+        where: { id: allocationId },
+      });
+      expect(allocation?.qty).toBe(3);
+      expect(allocation?.status).toBe("HELD");
+    });
+
+    it("rejects with a reason and releases the linked allocation", async () => {
+      const br = await createFreshBorrowRequest(5);
+      const allocationId = await createLinkedAllocation(5);
+
+      const res = await request(app)
+        .post(`/api/borrow-requests/${br.id}/reject`)
+        .set("Authorization", `Bearer ${lenderHeadToken}`)
+        .send({ reason: "No spare stock available after all" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.status).toBe("REJECTED");
+      expect(res.body.data.remarks).toBe("No spare stock available after all");
+
+      const allocation = await prisma.allocation.findUnique({
+        where: { id: allocationId },
+      });
+      expect(allocation?.status).toBe("RELEASED");
+    });
+
+    it("stops the borrower from approving its own request", async () => {
+      const br = await createFreshBorrowRequest();
+
+      const res = await request(app)
+        .post(`/api/borrow-requests/${br.id}/approve`)
+        .set("Authorization", `Bearer ${deptStoreHeadToken}`)
+        .send({ approvedQty: 5 });
+
+      expect(res.status).toBe(403);
+    });
+
+    it("stops the borrower from rejecting its own request", async () => {
+      const br = await createFreshBorrowRequest();
+
+      const res = await request(app)
+        .post(`/api/borrow-requests/${br.id}/reject`)
+        .set("Authorization", `Bearer ${deptStoreHeadToken}`)
+        .send({ reason: "I changed my mind" });
+
+      expect(res.status).toBe(403);
     });
   });
 });
