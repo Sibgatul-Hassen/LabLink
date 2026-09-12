@@ -16,6 +16,7 @@ import Experiments from "./pages/Experiments";
 import ClassSessions from "./pages/ClassSessions";
 import PeakClasses from "./pages/PeakClasses";
 import Requisitions from "./pages/Requisitions";
+import PurchaseRequests from "./pages/PurchaseRequests";
 import Users from "./pages/Users";
 
 export default function App() {
@@ -161,6 +162,17 @@ export default function App() {
           <ProtectedRoute>
             <Layout>
               <Requisitions />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/purchase-requests"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <PurchaseRequests />
             </Layout>
           </ProtectedRoute>
         }

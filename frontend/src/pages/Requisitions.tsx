@@ -9,10 +9,12 @@ import {
   addRequisitionLine,
   createRequisition,
   deleteRequisition,
+  getRequisitionResolution,
   getRequisitions,
   issueRequisition,
   removeRequisitionLine,
   returnRequisition,
+  submitRequisition,
   updateRequisitionLine,
 } from "../api/requisition.api";
 import { useAuthStore } from "../store/authStore";
@@ -84,6 +86,98 @@ function getErrorMessage(error: unknown): string {
 function formatMoment(value: string): string {
   const date = new Date(value);
   return `${date.toISOString().slice(0, 10)} ${date.toISOString().slice(11, 16)}`;
+}
+
+/**
+ * Task 4.3. Only meaningful once the resolver has actually run — DRAFT has
+ * nothing to break down yet, and past READY the lines' own qtyIssued/return
+ * fields tell the more relevant story — so this is only rendered for
+ * SUBMITTED and READY requisitions, fetching lazily on first expand.
+ */
+function ResolutionBreakdownPanel({
+  requisitionId,
+}: {
+  requisitionId: string;
+}) {
+  const { data, isLoading, isError, error } = useQuery({
+    queryKey: ["requisition-resolution", requisitionId],
+    queryFn: () => getRequisitionResolution(requisitionId),
+  });
+
+  if (isLoading) {
+    return (
+      <p className="text-sm text-slate-500">Loading resolution breakdown...</p>
+    );
+  }
+
+  if (isError) {
+    return <p className="text-sm text-red-600">{getErrorMessage(error)}</p>;
+  }
+
+  if (!data || data.lines.length === 0) {
+    return <p className="text-sm text-slate-500">No lines to resolve.</p>;
+  }
+
+  return (
+    <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+      <table className="min-w-full divide-y divide-slate-200">
+        <thead className="bg-slate-50">
+          <tr>
+            <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Component
+            </th>
+            <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Needed
+            </th>
+            <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Own Quota
+            </th>
+            <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Office
+            </th>
+            <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Borrowed
+            </th>
+            <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Short
+            </th>
+          </tr>
+        </thead>
+
+        <tbody className="divide-y divide-slate-100">
+          {data.lines.map((line) => (
+            <tr key={line.lineId}>
+              <td className="px-4 py-2 text-sm text-slate-700">
+                <span className="font-medium text-slate-900">
+                  {line.componentCode}
+                </span>{" "}
+                — {line.componentName}
+              </td>
+              <td className="px-4 py-2 text-right text-sm text-slate-700">
+                {line.qtyNeeded}
+              </td>
+              <td className="px-4 py-2 text-right text-sm text-slate-700">
+                {line.qtyFromOwn}
+              </td>
+              <td className="px-4 py-2 text-right text-sm text-slate-700">
+                {line.qtyFromOffice}
+              </td>
+              <td className="px-4 py-2 text-right text-sm text-slate-700">
+                {line.qtyFromBorrow}
+              </td>
+              <td
+                className={`px-4 py-2 text-right text-sm font-semibold ${
+                  line.qtyShort > 0 ? "text-amber-700" : "text-slate-700"
+                }`}
+              >
+                {line.qtyShort}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 export default function Requisitions() {
@@ -241,6 +335,17 @@ export default function Requisitions() {
     },
   });
 
+  const submitMutation = useMutation({
+    mutationFn: submitRequisition,
+    onSuccess: async () => {
+      setActionError("");
+      await refresh();
+    },
+    onError: (mutationError: unknown) => {
+      setActionError(getErrorMessage(mutationError));
+    },
+  });
+
   const issueMutation = useMutation({
     mutationFn: issueRequisition,
     onSuccess: async () => {
@@ -366,6 +471,19 @@ export default function Requisitions() {
       componentId: newLineComponentId,
       qtyNeeded: qty,
     });
+  }
+
+  function handleSubmitRequisition(requisition: Requisition) {
+    const confirmed = window.confirm(
+      "Submit this requisition? It will be resolved against stock, quota, and borrowing and can no longer be edited.",
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setActionError("");
+    submitMutation.mutate(requisition.id);
   }
 
   function handleIssue(requisition: Requisition) {
@@ -694,6 +812,17 @@ export default function Requisitions() {
                             </button>
                           )}
 
+                          {canEdit(requisition) && (
+                            <button
+                              type="button"
+                              onClick={() => handleSubmitRequisition(requisition)}
+                              disabled={submitMutation.isPending}
+                              className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Submit
+                            </button>
+                          )}
+
                           {canIssueOrReturn(user?.role) &&
                             requisition.status === "READY" && (
                               <button
@@ -720,7 +849,21 @@ export default function Requisitions() {
                       </td>
                     </tr>
 
-                    {expandedId === requisition.id && (
+                    {expandedId === requisition.id &&
+                      (requisition.status === "SUBMITTED" ||
+                      requisition.status === "READY" ? (
+                        <tr className="bg-slate-50">
+                          <td colSpan={7} className="px-6 py-5">
+                            <h4 className="mb-3 text-sm font-semibold text-slate-800">
+                              Resolution breakdown
+                            </h4>
+
+                            <ResolutionBreakdownPanel
+                              requisitionId={requisition.id}
+                            />
+                          </td>
+                        </tr>
+                      ) : (
                       <tr className="bg-slate-50">
                         <td colSpan={7} className="px-6 py-5">
                           <h4 className="mb-3 text-sm font-semibold text-slate-800">
@@ -890,7 +1033,7 @@ export default function Requisitions() {
                           )}
                         </td>
                       </tr>
-                    )}
+                    ))}
                   </Fragment>
                 ))}
               </tbody>

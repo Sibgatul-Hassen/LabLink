@@ -6,12 +6,17 @@ import type {
   RequisitionListResponse,
   RequisitionStatus,
   RequisitionType,
+  ResolutionBreakdown,
   ReturnRequisitionRequest,
   UpdateRequisitionRequest,
 } from "../types";
 
 interface RequisitionResponse {
   data: Requisition;
+}
+
+interface ResolutionBreakdownResponse {
+  data: ResolutionBreakdown;
 }
 
 interface GetRequisitionsParams {
@@ -104,6 +109,24 @@ export async function removeRequisitionLine(
 ): Promise<Requisition> {
   const response = await apiClient.delete<RequisitionResponse>(
     `/api/requisitions/${requisitionId}/lines/${lineId}`,
+  );
+
+  return response.data.data;
+}
+
+export async function submitRequisition(id: string): Promise<Requisition> {
+  const response = await apiClient.post<RequisitionResponse>(
+    `/api/requisitions/${id}/submit`,
+  );
+
+  return response.data.data;
+}
+
+export async function getRequisitionResolution(
+  id: string,
+): Promise<ResolutionBreakdown> {
+  const response = await apiClient.get<ResolutionBreakdownResponse>(
+    `/api/requisitions/${id}/resolution`,
   );
 
   return response.data.data;
