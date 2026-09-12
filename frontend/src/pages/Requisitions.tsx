@@ -7,7 +7,6 @@ import { getComponents } from "../api/component.api";
 import { getExperiment } from "../api/experiment.api";
 import { getLab } from "../api/lab.api";
 import { getSessions } from "../api/session.api";
-import RequisitionWizard from "../components/RequisitionWizard";
 import {
   addRequisitionLine,
   createRequisition,

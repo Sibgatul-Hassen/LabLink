@@ -1,14 +1,27 @@
+import axios from "axios";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getSessions } from "../api/session.api";
-import { 
-  createRequisition, 
-  submitRequisition, 
-  updateRequisitionLine, 
+import {
+  createRequisition,
+  submitRequisition,
+  updateRequisitionLine,
   removeRequisitionLine,
   getRequisitionResolution
 } from "../api/requisition.api";
-import type { Requisition } from "../types";
+import type { Requisition, ResolutionBreakdownLine } from "../types";
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (axios.isAxiosError(error)) {
+    const message = error.response?.data?.error;
+
+    if (typeof message === "string") {
+      return message;
+    }
+  }
+
+  return fallback;
+}
 
 // 기존 ResolutionBreakdownPanel - আপনি চাইলে Requisitions.tsx থেকে এটি এক্সপোর্ট করে এখানে ইমপোর্ট করতে পারেন।
 function BreakdownPanel({ requisitionId }: { requisitionId: string }) {
@@ -22,7 +35,7 @@ function BreakdownPanel({ requisitionId }: { requisitionId: string }) {
 
   return (
     <ul className="divide-y divide-slate-100 bg-slate-50 p-4 rounded-lg">
-      {data.lines.map((line: any) => (
+      {data.lines.map((line: ResolutionBreakdownLine) => (
         <li key={line.lineId} className="py-2 text-sm text-slate-700 flex justify-between">
           <span className="font-medium text-slate-900">{line.componentCode}</span>
           <span className={line.qtyShort > 0 ? "text-red-600 font-bold" : "text-green-600"}>
@@ -53,7 +66,8 @@ export default function RequisitionWizard({ onClose, onSuccess }: { onClose: () 
       setStep(2);
       setErrorMsg("");
     },
-    onError: (err: any) => setErrorMsg(err.response?.data?.error || "Failed to create draft."),
+    onError: (err: unknown) =>
+      setErrorMsg(getErrorMessage(err, "Failed to create draft.")),
   });
 
   const submitMut = useMutation({
@@ -62,7 +76,8 @@ export default function RequisitionWizard({ onClose, onSuccess }: { onClose: () 
       setStep(3);
       queryClient.invalidateQueries({ queryKey: ["requisitions"] });
     },
-    onError: (err: any) => setErrorMsg(err.response?.data?.error || "Submit failed."),
+    onError: (err: unknown) =>
+      setErrorMsg(getErrorMessage(err, "Submit failed.")),
   });
 
   const updateLineMut = useMutation({
