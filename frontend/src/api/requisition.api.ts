@@ -132,6 +132,21 @@ export async function getRequisitionResolution(
   return response.data.data;
 }
 
+// Lives here despite the /api/sessions path (per the brief) since it
+// returns — and is conceptually about creating — a Requisition, matching
+// every other function in this file. Gated server-side to LAB_ASSISTANT
+// and SYSTEM_ADMIN (session.routes.ts), the same roles that can raise a
+// CLASS requisition by hand.
+export async function draftRequisitionForSession(
+  sessionId: string,
+): Promise<Requisition> {
+  const response = await apiClient.post<RequisitionResponse>(
+    `/api/sessions/${sessionId}/draft-requisition`,
+  );
+
+  return response.data.data;
+}
+
 export async function issueRequisition(id: string): Promise<Requisition> {
   const response = await apiClient.post<RequisitionResponse>(
     `/api/requisitions/${id}/issue`,

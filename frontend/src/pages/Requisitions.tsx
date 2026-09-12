@@ -4,12 +4,15 @@ import { Fragment, type FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { getComponents } from "../api/component.api";
+import { getExperiment } from "../api/experiment.api";
+import { getLab } from "../api/lab.api";
 import { getSessions } from "../api/session.api";
 import RequisitionWizard from "../components/RequisitionWizard";
 import {
   addRequisitionLine,
   createRequisition,
   deleteRequisition,
+  draftRequisitionForSession,
   getRequisitionResolution,
   getRequisitions,
   issueRequisition,
@@ -194,14 +197,32 @@ export default function Requisitions() {
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  // The wizard's session path only exists for roles that can raise CLASS
+  // (LAB_ASSISTANT, SYSTEM_ADMIN — mirrors POST /sessions/:id/draft-requisition's
+  // own requireRole guard); everyone else only ever sees the manual form.
+  const manualAllowedTypes = allowedTypes.filter((type) => type !== "CLASS");
+  const canUseSessionWizard = allowedTypes.includes("CLASS");
+
   const [isFormOpen, setIsFormOpen] = useState(false);
-  const [formType, setFormType] = useState<RequisitionType>(
-    allowedTypes[0] ?? "PERSONAL",
+  const [wizardMode, setWizardMode] = useState<"session" | "manual">(
+    "session",
   );
-  const [formSessionId, setFormSessionId] = useState("");
+
+  const [formType, setFormType] = useState<RequisitionType>(
+    manualAllowedTypes[0] ?? "PERSONAL",
+  );
   const [formFrom, setFormFrom] = useState("");
   const [formTo, setFormTo] = useState("");
   const [formError, setFormError] = useState("");
+
+  // Task 6.1 — the 3-step "from a class session" wizard.
+  const [sessionWizardStep, setSessionWizardStep] = useState<1 | 2 | 3>(1);
+  const [selectedSessionId, setSelectedSessionId] = useState("");
+  const [wizardDraft, setWizardDraft] = useState<Requisition | null>(null);
+  const [wizardSubmitted, setWizardSubmitted] = useState<Requisition | null>(
+    null,
+  );
+  const [wizardError, setWizardError] = useState("");
 
   const [newLineComponentId, setNewLineComponentId] = useState("");
   const [newLineQty, setNewLineQty] = useState("1");
@@ -235,15 +256,65 @@ export default function Requisitions() {
     queryFn: () => getComponents({ limit: 100 }),
   });
 
-  // Only needed for class requisitions, so only fetched when one is being built.
-  const { data: sessionsData } = useQuery({
-    queryKey: ["sessions", "for-requisition"],
-    queryFn: () => getSessions({ limit: 100 }),
-    enabled: isFormOpen && formType === "CLASS",
+  // Step 1 — upcoming, not-yet-scheduled-for-a-requisition sessions. A
+  // session with no experiment assigned can't be drafted at all
+  // (draftRequisitionForSession would just throw), so those are filtered
+  // out client-side rather than offered as a dead-end option.
+  const { data: wizardSessionsData, isLoading: isWizardSessionsLoading } =
+    useQuery({
+      queryKey: ["sessions", "wizard-upcoming"],
+      queryFn: () => getSessions({ status: "SCHEDULED", limit: 100 }),
+      enabled: isFormOpen && wizardMode === "session" && sessionWizardStep === 1,
+    });
+
+  const wizardSessions = (wizardSessionsData?.data ?? []).filter(
+    (session) => session.experiment !== null,
+  );
+
+  const selectedSession =
+    wizardSessions.find((session) => session.id === selectedSessionId) ??
+    null;
+
+  // Step 2 — fetched only to reproduce the "students ÷ group size × 1.1"
+  // calculation for display; the authoritative qtyNeeded per line already
+  // comes back on wizardDraft itself from draftRequisitionForSession.
+  const { data: wizardExperiment } = useQuery({
+    queryKey: ["experiment", selectedSession?.experiment?.id],
+    queryFn: () => getExperiment(selectedSession!.experiment!.id),
+    enabled: sessionWizardStep === 2 && Boolean(selectedSession?.experiment),
+  });
+
+  const { data: wizardLab } = useQuery({
+    queryKey: ["lab", selectedSession?.routineSlot.lab.id],
+    queryFn: () => getLab(selectedSession!.routineSlot.lab.id),
+    enabled: sessionWizardStep === 2 && Boolean(selectedSession),
+  });
+
+  const wizardGroupSize = wizardLab?.groupSize;
+  const wizardGroups =
+    selectedSession && wizardGroupSize
+      ? Math.ceil(
+          selectedSession.routineSlot.section.studentCount / wizardGroupSize,
+        )
+      : null;
+
+  function qtyPerGroupFor(componentId: string): number | null {
+    const item = wizardExperiment?.items.find(
+      (candidate) => candidate.componentId === componentId,
+    );
+
+    return item ? item.qtyPerGroup : null;
+  }
+
+  // Step 3 — the same breakdown ResolutionBreakdownPanel shows elsewhere,
+  // fetched directly here so the wizard can color-code it per the brief.
+  const { data: wizardResolution } = useQuery({
+    queryKey: ["requisition-resolution", wizardSubmitted?.id],
+    queryFn: () => getRequisitionResolution(wizardSubmitted!.id),
+    enabled: sessionWizardStep === 3 && Boolean(wizardSubmitted),
   });
 
   const components = componentsData?.data ?? [];
-  const sessions = sessionsData?.data ?? [];
 
   async function refresh() {
     await queryClient.invalidateQueries({ queryKey: ["requisitions"] });
@@ -271,6 +342,36 @@ export default function Requisitions() {
     },
     onError: (mutationError: unknown) => {
       setActionError(getErrorMessage(mutationError));
+    },
+  });
+
+  // Task 6.1 wizard step 1 -> 2: auto-creates the draft from the picked
+  // session. Kept separate from createMutation since its success handler
+  // advances a wizard step instead of closing the modal.
+  const draftMutation = useMutation({
+    mutationFn: draftRequisitionForSession,
+    onSuccess: (created) => {
+      setWizardError("");
+      setWizardDraft(created);
+      setSessionWizardStep(2);
+    },
+    onError: (mutationError: unknown) => {
+      setWizardError(getErrorMessage(mutationError));
+    },
+  });
+
+  // Wizard step 2 -> 3. Separate from the main list's submitMutation below
+  // since this one needs the resolved requisition to advance the wizard,
+  // not just to refresh the background list.
+  const submitWizardMutation = useMutation({
+    mutationFn: submitRequisition,
+    onSuccess: (result) => {
+      setWizardError("");
+      setWizardSubmitted(result);
+      setSessionWizardStep(3);
+    },
+    onError: (mutationError: unknown) => {
+      setWizardError(getErrorMessage(mutationError));
     },
   });
 
@@ -387,17 +488,85 @@ export default function Requisitions() {
   }
 
   function openForm() {
-    setFormType(allowedTypes[0] ?? "PERSONAL");
-    setFormSessionId("");
+    setWizardMode(canUseSessionWizard ? "session" : "manual");
+    setSessionWizardStep(1);
+    setSelectedSessionId("");
+    setWizardDraft(null);
+    setWizardSubmitted(null);
+    setWizardError("");
+    setFormType(manualAllowedTypes[0] ?? "PERSONAL");
     setFormFrom("");
     setFormTo("");
     setFormError("");
     setIsFormOpen(true);
   }
 
+  /**
+   * Task 6.1. A session's draft already has its lines (draftRequisitionForSession
+   * creates them in the same call), so backing out of the wizard — or
+   * closing it — after step 2 would otherwise leave a real, empty-of-purpose
+   * DRAFT sitting in the list forever. Deleting it is safe: it is always
+   * still a DRAFT owned by the current actor at this point, exactly what
+   * DELETE /requisitions/:id requires. Best-effort — if it fails, it's just
+   * an ordinary DRAFT someone can delete later, not a stuck state.
+   */
+  function discardWizardDraftIfAny() {
+    if (wizardDraft && !wizardSubmitted) {
+      deleteRequisition(wizardDraft.id).catch(() => undefined);
+    }
+  }
+
   function closeForm() {
+    discardWizardDraftIfAny();
     setIsFormOpen(false);
     setFormError("");
+    setWizardDraft(null);
+    setWizardSubmitted(null);
+    setWizardError("");
+  }
+
+  function switchWizardMode(mode: "session" | "manual") {
+    discardWizardDraftIfAny();
+    setWizardMode(mode);
+    setSessionWizardStep(1);
+    setSelectedSessionId("");
+    setWizardDraft(null);
+    setWizardSubmitted(null);
+    setWizardError("");
+  }
+
+  function handleWizardNext() {
+    if (!selectedSessionId) {
+      setWizardError("Pick a session to continue.");
+      return;
+    }
+
+    setWizardError("");
+    draftMutation.mutate(selectedSessionId);
+  }
+
+  function handleWizardBack() {
+    discardWizardDraftIfAny();
+    setWizardDraft(null);
+    setWizardError("");
+    setSessionWizardStep(1);
+  }
+
+  function handleWizardSubmit() {
+    if (!wizardDraft) {
+      return;
+    }
+
+    setWizardError("");
+    submitWizardMutation.mutate(wizardDraft.id);
+  }
+
+  async function handleWizardDone() {
+    setIsFormOpen(false);
+    setWizardDraft(null);
+    setWizardSubmitted(null);
+    setWizardError("");
+    await refresh();
   }
 
   function toggleExpanded(id: string) {
@@ -411,16 +580,6 @@ export default function Requisitions() {
   function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError("");
-
-    if (formType === "CLASS") {
-      if (!formSessionId) {
-        setFormError("Pick a class session.");
-        return;
-      }
-
-      createMutation.mutate({ type: "CLASS", classSessionId: formSessionId });
-      return;
-    }
 
     if (!formFrom || !formTo) {
       setFormError("Both a start and an end time are required.");
@@ -1077,14 +1236,16 @@ export default function Requisitions() {
 
       {isFormOpen && canRaise && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
-          <div className="max-h-full w-full max-w-lg overflow-y-auto rounded-xl bg-white shadow-xl">
+          <div className="max-h-full w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
               <div>
                 <h3 className="text-lg font-semibold text-slate-900">
                   New Requisition
                 </h3>
                 <p className="mt-1 text-sm text-slate-500">
-                  Creates a draft. Add components to it afterwards.
+                  {wizardMode === "session"
+                    ? `Step ${sessionWizardStep} of 3 — from a scheduled class session.`
+                    : "Creates a draft. Add components to it afterwards."}
                 </p>
               </div>
 
@@ -1098,63 +1259,317 @@ export default function Requisitions() {
               </button>
             </div>
 
-            <form onSubmit={handleCreate} className="space-y-5 p-6">
-              <div>
-                <label
-                  htmlFor="req-type"
-                  className="mb-1 block text-sm font-medium text-slate-700"
+            {canUseSessionWizard && manualAllowedTypes.length > 0 && (
+              <div className="flex gap-2 border-b border-slate-200 px-6 pt-4">
+                <button
+                  type="button"
+                  onClick={() => switchWizardMode("session")}
+                  className={`rounded-t-lg px-3 py-2 text-sm font-medium transition ${
+                    wizardMode === "session"
+                      ? "border-b-2 border-slate-900 text-slate-900"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
                 >
-                  Type
-                </label>
+                  From Class Session
+                </button>
 
-                <select
-                  id="req-type"
-                  value={formType}
-                  onChange={(event) =>
-                    setFormType(event.target.value as RequisitionType)
-                  }
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                <button
+                  type="button"
+                  onClick={() => switchWizardMode("manual")}
+                  className={`rounded-t-lg px-3 py-2 text-sm font-medium transition ${
+                    wizardMode === "manual"
+                      ? "border-b-2 border-slate-900 text-slate-900"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
                 >
-                  {allowedTypes.map((type) => (
-                    <option key={type} value={type}>
-                      {type}
-                    </option>
-                  ))}
-                </select>
+                  Manual (Personal / Maintenance)
+                </button>
               </div>
+            )}
 
-              {formType === "CLASS" ? (
+            {wizardMode === "session" ? (
+              <div className="space-y-5 p-6">
+                {sessionWizardStep === 1 && (
+                  <>
+                    <div>
+                      <h4 className="mb-1 text-sm font-semibold text-slate-800">
+                        Pick a scheduled session
+                      </h4>
+                      <p className="text-sm text-slate-500">
+                        Only sessions with an experiment assigned can be
+                        drafted — assign one from Class Sessions first if
+                        yours is missing.
+                      </p>
+                    </div>
+
+                    {isWizardSessionsLoading ? (
+                      <p className="text-sm text-slate-500">
+                        Loading sessions...
+                      </p>
+                    ) : wizardSessions.length === 0 ? (
+                      <p className="text-sm text-slate-500">
+                        No upcoming sessions with an experiment assigned.
+                      </p>
+                    ) : (
+                      <ul className="max-h-72 divide-y divide-slate-200 overflow-y-auto rounded-lg border border-slate-200">
+                        {wizardSessions.map((session) => (
+                          <li key={session.id}>
+                            <label className="flex cursor-pointer items-start gap-3 px-4 py-3 hover:bg-slate-50">
+                              <input
+                                type="radio"
+                                name="wizard-session"
+                                checked={selectedSessionId === session.id}
+                                onChange={() =>
+                                  setSelectedSessionId(session.id)
+                                }
+                                className="mt-1"
+                              />
+
+                              <div className="text-sm text-slate-700">
+                                <span className="font-medium text-slate-900">
+                                  {session.date.slice(0, 10)}
+                                </span>{" "}
+                                · {session.routineSlot.startTime}–
+                                {session.routineSlot.endTime}
+                                <div>
+                                  {session.routineSlot.section.course.code}{" "}
+                                  Section {session.routineSlot.section.name} ·{" "}
+                                  {session.routineSlot.lab.name}
+                                </div>
+                                <div className="text-xs text-slate-500">
+                                  {session.experiment?.title}
+                                </div>
+                              </div>
+                            </label>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+
+                    {wizardError && (
+                      <div
+                        role="alert"
+                        className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"
+                      >
+                        {wizardError}
+                      </div>
+                    )}
+
+                    <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
+                      <button
+                        type="button"
+                        onClick={closeForm}
+                        className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                      >
+                        Cancel
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleWizardNext}
+                        disabled={draftMutation.isPending || !selectedSessionId}
+                        className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {draftMutation.isPending ? "Creating draft..." : "Next"}
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {sessionWizardStep === 2 && wizardDraft && selectedSession && (
+                  <>
+                    <div>
+                      <h4 className="mb-1 text-sm font-semibold text-slate-800">
+                        Review draft
+                      </h4>
+                      <p className="text-sm text-slate-500">
+                        {selectedSession.routineSlot.section.course.code}{" "}
+                        Section {selectedSession.routineSlot.section.name} ·{" "}
+                        {selectedSession.experiment?.title}
+                      </p>
+
+                      {wizardGroups !== null && (
+                        <p className="mt-2 text-xs text-slate-500">
+                          {selectedSession.routineSlot.section.studentCount}{" "}
+                          students ÷ {wizardGroupSize} per group ={" "}
+                          {wizardGroups} group{wizardGroups === 1 ? "" : "s"}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="overflow-x-auto rounded-lg border border-slate-200">
+                      <table className="min-w-full divide-y divide-slate-200">
+                        <thead className="bg-slate-50">
+                          <tr>
+                            <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                              Component
+                            </th>
+                            <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                              Calculation
+                            </th>
+                            <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                              Qty Needed
+                            </th>
+                          </tr>
+                        </thead>
+
+                        <tbody className="divide-y divide-slate-100 bg-white">
+                          {wizardDraft.lines.map((line) => {
+                            const qtyPerGroup = qtyPerGroupFor(
+                              line.componentId,
+                            );
+
+                            return (
+                              <tr key={line.id}>
+                                <td className="px-4 py-2 text-sm text-slate-700">
+                                  <span className="font-medium text-slate-900">
+                                    {line.component.code}
+                                  </span>{" "}
+                                  — {line.component.name}
+                                </td>
+                                <td className="px-4 py-2 text-xs text-slate-500">
+                                  {qtyPerGroup !== null && wizardGroups
+                                    ? `${qtyPerGroup} × ${wizardGroups} × 1.1`
+                                    : "—"}
+                                </td>
+                                <td className="px-4 py-2 text-right text-sm font-semibold text-slate-900">
+                                  {line.qtyNeeded} {line.component.unit}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {wizardError && (
+                      <div
+                        role="alert"
+                        className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"
+                      >
+                        {wizardError}
+                      </div>
+                    )}
+
+                    <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
+                      <button
+                        type="button"
+                        onClick={handleWizardBack}
+                        className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                      >
+                        Back
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleWizardSubmit}
+                        disabled={submitWizardMutation.isPending}
+                        className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {submitWizardMutation.isPending
+                          ? "Submitting..."
+                          : "Submit"}
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {sessionWizardStep === 3 && wizardSubmitted && (
+                  <>
+                    <div>
+                      <h4 className="mb-1 text-sm font-semibold text-slate-800">
+                        Resolution
+                      </h4>
+                      <p className="text-sm text-slate-500">
+                        Status:{" "}
+                        <span className="font-medium text-slate-900">
+                          {wizardSubmitted.status.replace(/_/g, " ")}
+                        </span>
+                      </p>
+                    </div>
+
+                    {!wizardResolution ? (
+                      <p className="text-sm text-slate-500">
+                        Loading resolution...
+                      </p>
+                    ) : (
+                      <ul className="space-y-3">
+                        {wizardResolution.lines.map((line) => (
+                          <li
+                            key={line.lineId}
+                            className="rounded-lg border border-slate-200 p-4"
+                          >
+                            <p className="mb-2 text-sm font-medium text-slate-900">
+                              {line.componentCode} — {line.componentName}{" "}
+                              <span className="font-normal text-slate-500">
+                                (needed {line.qtyNeeded})
+                              </span>
+                            </p>
+
+                            <div className="flex flex-wrap gap-2">
+                              <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-700">
+                                Own quota: {line.qtyFromOwn}
+                              </span>
+                              <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">
+                                Office: {line.qtyFromOffice}
+                              </span>
+                              <span className="inline-flex items-center rounded-full bg-yellow-100 px-2.5 py-1 text-xs font-semibold text-yellow-800">
+                                Borrowed: {line.qtyFromBorrow}
+                              </span>
+                              <span className="inline-flex items-center rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-700">
+                                Short: {line.qtyShort}
+                              </span>
+                            </div>
+
+                            {line.qtyShort > 0 && (
+                              <p className="mt-2 text-xs text-slate-500">
+                                Still short — a purchase request has been
+                                raised for the remainder.
+                              </p>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+
+                    <div className="flex justify-end border-t border-slate-100 pt-4">
+                      <button
+                        type="button"
+                        onClick={handleWizardDone}
+                        className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700"
+                      >
+                        Done
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : (
+              <form onSubmit={handleCreate} className="space-y-5 p-6">
                 <div>
                   <label
-                    htmlFor="req-session"
+                    htmlFor="req-type"
                     className="mb-1 block text-sm font-medium text-slate-700"
                   >
-                    Class Session
+                    Type
                   </label>
 
                   <select
-                    id="req-session"
-                    value={formSessionId}
-                    onChange={(event) => setFormSessionId(event.target.value)}
+                    id="req-type"
+                    value={formType}
+                    onChange={(event) =>
+                      setFormType(event.target.value as RequisitionType)
+                    }
                     className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                   >
-                    <option value="">Select a session</option>
-                    {sessions.map((session) => (
-                      <option key={session.id} value={session.id}>
-                        {session.date.slice(0, 10)} ·{" "}
-                        {session.routineSlot.section.course.code} Section{" "}
-                        {session.routineSlot.section.name} ·{" "}
-                        {session.routineSlot.startTime}
+                    {manualAllowedTypes.map((type) => (
+                      <option key={type} value={type}>
+                        {type}
                       </option>
                     ))}
                   </select>
-
-                  <p className="mt-2 text-xs text-slate-500">
-                    The time window is taken from the session, so it always
-                    matches the class exactly.
-                  </p>
                 </div>
-              ) : (
+
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
                     <label
@@ -1190,35 +1605,35 @@ export default function Requisitions() {
                     />
                   </div>
                 </div>
-              )}
 
-              {formError && (
-                <div
-                  role="alert"
-                  className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"
-                >
-                  {formError}
+                {formError && (
+                  <div
+                    role="alert"
+                    className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"
+                  >
+                    {formError}
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
+                  <button
+                    type="button"
+                    onClick={closeForm}
+                    className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    type="submit"
+                    disabled={createMutation.isPending}
+                    className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {createMutation.isPending ? "Creating..." : "Create Draft"}
+                  </button>
                 </div>
-              )}
-
-              <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
-                <button
-                  type="button"
-                  onClick={closeForm}
-                  className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-                >
-                  Cancel
-                </button>
-
-                <button
-                  type="submit"
-                  disabled={createMutation.isPending}
-                  className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {createMutation.isPending ? "Creating..." : "Create Draft"}
-                </button>
-              </div>
-            </form>
+              </form>
+            )}
           </div>
         </div>
       )}
