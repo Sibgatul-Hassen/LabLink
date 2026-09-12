@@ -1001,6 +1001,234 @@ describe("Requisition CRUD API Integration Tests", () => {
       expect(damagedMovement).not.toBeNull();
       expect(damagedMovement?.qty).toBe(1);
     });
+
+    it("Task 5.18: still accepts a return whose counts sum exactly to qtyIssued", async () => {
+      await prisma.stock.create({
+        data: { componentId: componentOneId, onHand: 10, spareQty: 0 },
+      });
+
+      await prisma.requisition.update({
+        where: { id: requisitionId },
+        data: { status: "READY" },
+      });
+
+      const issueRes = await request(app)
+        .post(`/api/requisitions/${requisitionId}/issue`)
+        .set("Authorization", `Bearer ${centralToken}`);
+
+      expect(issueRes.status).toBe(200);
+      expect(issueRes.body.data.lines[0].qtyIssued).toBe(5);
+
+      const res = await request(app)
+        .post(`/api/requisitions/${requisitionId}/return`)
+        .set("Authorization", `Bearer ${centralToken}`)
+        .send({
+          items: [
+            {
+              componentId: componentOneId,
+              goodQty: 4,
+              damagedQty: 1,
+              lostQty: 0,
+              usedUpQty: 0,
+            },
+          ],
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.status).toBe("RETURNED");
+
+      const line = await prisma.requisitionLine.findFirst({
+        where: { requisitionId, componentId: componentOneId },
+      });
+      expect(line?.qtyReturnedGood).toBe(4);
+      expect(line?.qtyDamaged).toBe(1);
+    });
+
+    it("Task 5.18: rejects a return whose counts sum to less than qtyIssued, with no StockMovement or line change", async () => {
+      await prisma.stock.create({
+        data: { componentId: componentOneId, onHand: 10, spareQty: 0 },
+      });
+
+      await prisma.requisition.update({
+        where: { id: requisitionId },
+        data: { status: "READY" },
+      });
+
+      const issueRes = await request(app)
+        .post(`/api/requisitions/${requisitionId}/issue`)
+        .set("Authorization", `Bearer ${centralToken}`);
+
+      expect(issueRes.status).toBe(200);
+      expect(issueRes.body.data.lines[0].qtyIssued).toBe(5);
+
+      const res = await request(app)
+        .post(`/api/requisitions/${requisitionId}/return`)
+        .set("Authorization", `Bearer ${centralToken}`)
+        .send({
+          items: [
+            {
+              componentId: componentOneId,
+              goodQty: 2,
+              damagedQty: 0,
+              lostQty: 0,
+              usedUpQty: 0,
+            },
+          ],
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain("Return quantity mismatch");
+
+      const line = await prisma.requisitionLine.findFirst({
+        where: { requisitionId, componentId: componentOneId },
+      });
+      expect(line?.qtyReturnedGood).toBe(0);
+      expect(line?.qtyDamaged).toBe(0);
+      expect(line?.qtyLost).toBe(0);
+      expect(line?.qtyUsedUp).toBe(0);
+
+      const returnMovements = await prisma.stockMovement.findMany({
+        where: {
+          refId: requisitionId,
+          type: { in: ["RETURN", "DAMAGED", "LOST", "USED_UP"] },
+        },
+      });
+      expect(returnMovements).toHaveLength(0);
+
+      const requisition = await prisma.requisition.findUnique({
+        where: { id: requisitionId },
+      });
+      expect(requisition?.status).toBe("ISSUED");
+    });
+
+    it("Task 5.18: rejects a return whose counts sum to more than qtyIssued", async () => {
+      await prisma.stock.create({
+        data: { componentId: componentOneId, onHand: 10, spareQty: 0 },
+      });
+
+      await prisma.requisition.update({
+        where: { id: requisitionId },
+        data: { status: "READY" },
+      });
+
+      const issueRes = await request(app)
+        .post(`/api/requisitions/${requisitionId}/issue`)
+        .set("Authorization", `Bearer ${centralToken}`);
+
+      expect(issueRes.status).toBe(200);
+      expect(issueRes.body.data.lines[0].qtyIssued).toBe(5);
+
+      const res = await request(app)
+        .post(`/api/requisitions/${requisitionId}/return`)
+        .set("Authorization", `Bearer ${centralToken}`)
+        .send({
+          items: [
+            {
+              componentId: componentOneId,
+              goodQty: 10,
+              damagedQty: 0,
+              lostQty: 0,
+              usedUpQty: 0,
+            },
+          ],
+        });
+
+      expect(res.status).toBe(400);
+
+      const line = await prisma.requisitionLine.findFirst({
+        where: { requisitionId, componentId: componentOneId },
+      });
+      expect(line?.qtyReturnedGood).toBe(0);
+
+      const requisition = await prisma.requisition.findUnique({
+        where: { id: requisitionId },
+      });
+      expect(requisition?.status).toBe("ISSUED");
+    });
+
+    it("Task 5.18: rejects the whole return when one line is valid and another isn't, applying neither", async () => {
+      const created = await create(
+        {
+          type: "PERSONAL",
+          ...OWN_WINDOW,
+          lines: [
+            { componentId: componentOneId, qtyNeeded: 5 },
+            { componentId: componentTwoId, qtyNeeded: 3 },
+          ],
+        },
+        studentToken,
+      );
+      const multiRequisitionId = created.body.data.id;
+
+      await prisma.stock.create({
+        data: { componentId: componentOneId, onHand: 10, spareQty: 0 },
+      });
+      await prisma.stock.create({
+        data: { componentId: componentTwoId, onHand: 10, spareQty: 0 },
+      });
+
+      await prisma.requisition.update({
+        where: { id: multiRequisitionId },
+        data: { status: "READY" },
+      });
+
+      const issueRes = await request(app)
+        .post(`/api/requisitions/${multiRequisitionId}/issue`)
+        .set("Authorization", `Bearer ${centralToken}`);
+
+      expect(issueRes.status).toBe(200);
+
+      // componentOne's counts are valid (sum to its qtyIssued of 5) and come
+      // first; componentTwo's are invalid (sum to 2, not its qtyIssued of
+      // 3) and come second — proving the pre-check rejects everything
+      // up front rather than only stopping once it reaches the bad line.
+      const res = await request(app)
+        .post(`/api/requisitions/${multiRequisitionId}/return`)
+        .set("Authorization", `Bearer ${centralToken}`)
+        .send({
+          items: [
+            {
+              componentId: componentOneId,
+              goodQty: 5,
+              damagedQty: 0,
+              lostQty: 0,
+              usedUpQty: 0,
+            },
+            {
+              componentId: componentTwoId,
+              goodQty: 2,
+              damagedQty: 0,
+              lostQty: 0,
+              usedUpQty: 0,
+            },
+          ],
+        });
+
+      expect(res.status).toBe(400);
+
+      const lineOne = await prisma.requisitionLine.findFirst({
+        where: { requisitionId: multiRequisitionId, componentId: componentOneId },
+      });
+      const lineTwo = await prisma.requisitionLine.findFirst({
+        where: { requisitionId: multiRequisitionId, componentId: componentTwoId },
+      });
+
+      expect(lineOne?.qtyReturnedGood).toBe(0);
+      expect(lineTwo?.qtyReturnedGood).toBe(0);
+
+      const returnMovements = await prisma.stockMovement.findMany({
+        where: {
+          refId: multiRequisitionId,
+          type: { in: ["RETURN", "DAMAGED", "LOST", "USED_UP"] },
+        },
+      });
+      expect(returnMovements).toHaveLength(0);
+
+      const requisition = await prisma.requisition.findUnique({
+        where: { id: multiRequisitionId },
+      });
+      expect(requisition?.status).toBe("ISSUED");
+    });
   });
 
   describe("Submit and resolve", () => {
