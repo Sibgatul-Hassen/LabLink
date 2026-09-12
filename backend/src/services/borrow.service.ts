@@ -499,4 +499,122 @@ export class BorrowService {
 
     return this.getBorrowRequestById(borrowRequestId, actor);
   }
+
+  // ─────────────── hand-over ───────────────
+
+  /**
+   * Task 5.6. Two schema realities the brief's field names didn't match:
+   *
+   *   - No handedOverAt/handedOverById columns exist. approveBorrow already
+   *     stamped decidedById/decidedAt for the approval; overwriting them here
+   *     would destroy that record with no replacement, since there is no
+   *     second decided-pair for a second decision. So this leaves them alone
+   *     and records who performed the hand-over the way every other
+   *     stock-affecting action in this codebase does: StockMovement.
+   *     performedById on the two movements below.
+   *
+   *   - Stock.onHand has no department column — it is one shared "physically
+   *     at the office" pool (Stock's own comment), not a per-department
+   *     ledger. A tier-3 borrow allocation is drawn from the *lender's
+   *     quota headroom*, not from stock the lender already had issued to
+   *     it — the units were always still sitting in this same shared pool.
+   *     RequisitionService.issueRequisition (unchanged by this task) already
+   *     deducts a line's full qtyNeeded — borrowed portion included — from
+   *     this same onHand when the borrowing department's own requisition is
+   *     issued. If hand-over *also* deducted onHand for the lender and added
+   *     it for the borrower, that qty would be removed from the shared pool
+   *     twice for a single physical movement of goods. Since "deduct from
+   *     lender" and "add to borrower" land on the exact same Stock row here,
+   *     they mathematically net to zero regardless of what the row currently
+   *     holds — so rather than write two calls whose only job is to cancel
+   *     out (and which would throw on a component with no Stock row yet, a
+   *     real possibility for a manually-created borrow request), onHand is
+   *     left untouched entirely. The two StockMovement rows below still
+   *     record the transfer for audit purposes.
+   */
+  static async handOverBorrow(
+    borrowRequestId: string,
+    actor: BorrowActor,
+  ): Promise<BorrowRequestWithRelations> {
+    const borrowRequest = await prisma.borrowRequest.findUnique({
+      where: { id: borrowRequestId },
+      include: { lines: true },
+    });
+
+    if (!borrowRequest) {
+      throw new Error("Borrow request not found");
+    }
+
+    if (borrowRequest.status !== "APPROVED") {
+      throw new Error("Only an approved borrow can be handed over");
+    }
+
+    if (
+      !UNSCOPED_ROLES.includes(actor.role) &&
+      actor.departmentId !== borrowRequest.lenderDeptId
+    ) {
+      throw new Error("Only the lending department can hand over this request");
+    }
+
+    const [line] = borrowRequest.lines;
+
+    if (!line || line.qtyApproved <= 0) {
+      throw new Error(
+        "This borrow request has no approved quantity to hand over",
+      );
+    }
+
+    const qty = line.qtyApproved;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.stockMovement.create({
+        data: {
+          componentId: line.componentId,
+          qty: -qty,
+          type: "TRANSFER",
+          fromDeptId: borrowRequest.lenderDeptId,
+          toDeptId: borrowRequest.borrowerDeptId,
+          refType: "BORROW",
+          refId: borrowRequestId,
+          performedById: actor.id,
+          note: "Hand-over: released by lending department",
+        },
+      });
+
+      await tx.stockMovement.create({
+        data: {
+          componentId: line.componentId,
+          qty,
+          type: "TRANSFER",
+          fromDeptId: borrowRequest.lenderDeptId,
+          toDeptId: borrowRequest.borrowerDeptId,
+          refType: "BORROW",
+          refId: borrowRequestId,
+          performedById: actor.id,
+          note: "Hand-over: received by borrowing department",
+        },
+      });
+
+      await tx.borrowRequest.update({
+        where: { id: borrowRequestId },
+        data: { status: "HANDED_OVER" },
+      });
+
+      const allocation = await this.findBorrowAllocation(
+        tx,
+        borrowRequest.requisitionId,
+        line.componentId,
+        borrowRequest.lenderDeptId,
+      );
+
+      if (allocation) {
+        await tx.allocation.update({
+          where: { id: allocation.id },
+          data: { status: "ISSUED" },
+        });
+      }
+    });
+
+    return this.getBorrowRequestById(borrowRequestId, actor);
+  }
 }
