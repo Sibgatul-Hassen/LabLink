@@ -17,6 +17,7 @@ const testDepartmentCodes = [
   "TEST-BOR-BORROWER",
   "TEST-BOR-LENDER",
   "TEST-BOR-OTHER",
+  "TEST-BOR-ZERO",
 ];
 const testComponentCodes = ["TEST-BOR-COMP"];
 const testEmails = [
@@ -38,6 +39,12 @@ async function cleanupTestData() {
   await prisma.requisition.deleteMany({
     where: { department: { code: { in: testDepartmentCodes } } },
   });
+  await prisma.departmentQuota.deleteMany({
+    where: { component: { code: { in: testComponentCodes } } },
+  });
+  await prisma.stock.deleteMany({
+    where: { component: { code: { in: testComponentCodes } } },
+  });
   await prisma.component.deleteMany({
     where: { code: { in: testComponentCodes } },
   });
@@ -50,6 +57,7 @@ async function cleanupTestData() {
 describe("Borrow Request API Integration Tests", () => {
   let deptBorrowerId: string;
   let deptLenderId: string;
+  let deptOtherId: string;
   let componentId: string;
   let requisitionBorrowerId: string;
 
@@ -79,6 +87,7 @@ describe("Borrow Request API Integration Tests", () => {
     const deptOther = await prisma.department.create({
       data: { code: testDepartmentCodes[2], name: "Borrow Test Other Dept" },
     });
+    deptOtherId = deptOther.id;
 
     const component = await prisma.component.create({
       data: {
@@ -356,6 +365,115 @@ describe("Borrow Request API Integration Tests", () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data.id).toBe(brBorrowerLenderId);
+    });
+  });
+
+  describe("FIND LENDERS - GET /api/borrow-requests/lenders", () => {
+    let deptZeroId: string;
+
+    const windowStart = "2027-08-01T08:00:00.000Z";
+    const windowEnd = "2027-08-01T10:00:00.000Z";
+
+    beforeAll(async () => {
+      const deptZero = await prisma.department.create({
+        data: { code: "TEST-BOR-ZERO", name: "Borrow Test Zero-Quota Dept" },
+      });
+      deptZeroId = deptZero.id;
+
+      // Comfortably above the sum of every quota below, so quota — not
+      // physical stock — is the binding constraint for each department,
+      // keeping the expected numbers exactly equal to the quotas.
+      await prisma.stock.create({
+        data: { componentId, onHand: 100, spareQty: 0 },
+      });
+
+      await prisma.departmentQuota.createMany({
+        data: [
+          { departmentId: deptBorrowerId, componentId, qty: 15 },
+          { departmentId: deptLenderId, componentId, qty: 20 },
+          { departmentId: deptOtherId, componentId, qty: 5 },
+          // deptZeroId gets no quota row at all — zero entitlement.
+        ],
+      });
+    });
+
+    function lendersUrl(excludeDeptId: string): string {
+      return (
+        "/api/borrow-requests/lenders" +
+        `?componentId=${componentId}` +
+        "&qtyNeeded=10" +
+        `&windowStart=${windowStart}` +
+        `&windowEnd=${windowEnd}` +
+        `&excludeDeptId=${excludeDeptId}`
+      );
+    }
+
+    it("rejects unauthenticated requests", async () => {
+      const res = await request(app).get(lendersUrl(deptZeroId));
+      expect(res.status).toBe(401);
+    });
+
+    it("is 403 for a disallowed role", async () => {
+      const res = await request(app)
+        .get(lendersUrl(deptZeroId))
+        .set("Authorization", `Bearer ${studentToken}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it("returns departments ranked by available quantity, descending", async () => {
+      const res = await request(app)
+        .get(lendersUrl(deptZeroId))
+        .set("Authorization", `Bearer ${deptStoreHeadToken}`);
+
+      expect(res.status).toBe(200);
+
+      type Lender = { departmentId: string; availableQty: number };
+
+      const byId = new Map(
+        res.body.data.map((l: Lender) => [l.departmentId, l.availableQty]),
+      );
+
+      expect(byId.get(deptLenderId)).toBe(20);
+      expect(byId.get(deptBorrowerId)).toBe(15);
+      expect(byId.get(deptOtherId)).toBe(5);
+
+      const indexOf = (deptId: string) =>
+        res.body.data.findIndex((l: Lender) => l.departmentId === deptId);
+
+      expect(indexOf(deptLenderId)).toBeLessThan(indexOf(deptBorrowerId));
+      expect(indexOf(deptBorrowerId)).toBeLessThan(indexOf(deptOtherId));
+    });
+
+    it("excludes the requesting department", async () => {
+      const res = await request(app)
+        .get(lendersUrl(deptBorrowerId))
+        .set("Authorization", `Bearer ${deptStoreHeadToken}`);
+
+      expect(res.status).toBe(200);
+
+      const ids = res.body.data.map(
+        (l: { departmentId: string }) => l.departmentId,
+      );
+
+      expect(ids).not.toContain(deptBorrowerId);
+      // Confirms the exclusion actually did something — deptBorrowerId had
+      // real (15-unit) availability that a broken filter would have shown.
+      expect(ids).toContain(deptLenderId);
+    });
+
+    it("excludes departments with zero availability", async () => {
+      const res = await request(app)
+        .get(lendersUrl(deptOtherId))
+        .set("Authorization", `Bearer ${deptStoreHeadToken}`);
+
+      expect(res.status).toBe(200);
+
+      const ids = res.body.data.map(
+        (l: { departmentId: string }) => l.departmentId,
+      );
+
+      expect(ids).not.toContain(deptZeroId);
     });
   });
 });

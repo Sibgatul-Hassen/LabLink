@@ -5,6 +5,7 @@ import { requireAuth } from "../middleware/auth";
 import { requireRole } from "../middleware/rbac";
 import {
   createBorrowRequestSchema,
+  findLendersQuerySchema,
   listBorrowRequestsQuerySchema,
 } from "../schemas/borrow.schema";
 import { BorrowActor, BorrowService } from "../services/borrow.service";
@@ -118,6 +119,36 @@ router.get(
       const result = await BorrowService.listBorrowRequests(query, actor);
 
       res.status(200).json(result);
+    } catch (error) {
+      handleBorrowError(error, res);
+    }
+  },
+);
+
+// Task 5.2. Registered ahead of "/borrow-requests/:id" — a literal segment
+// must come before a param route on the same depth, or Express would match
+// "lenders" as an :id and hand this to getBorrowRequestById instead.
+//
+// Not nested under a specific borrow request: this ranks potential lenders
+// for a component + window before any borrow request exists, so it lives at
+// its own path rather than "/borrow-requests/:id/lenders".
+router.get(
+  "/borrow-requests/lenders",
+  requireAuth,
+  requireRole("CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN", "DEPT_STORE_HEAD"),
+  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const query = findLendersQuerySchema.parse(req.query);
+
+      const lenders = await BorrowService.findLenders(
+        query.componentId,
+        query.qtyNeeded,
+        query.windowStart,
+        query.windowEnd,
+        query.excludeDeptId,
+      );
+
+      res.status(200).json({ data: lenders });
     } catch (error) {
       handleBorrowError(error, res);
     }

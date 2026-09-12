@@ -1,6 +1,7 @@
 import { Prisma, Role } from "@prisma/client";
 
 import { prisma } from "../lib/prisma";
+import { AvailabilityService, AvailabilityWindow } from "./availability.service";
 import {
   CreateBorrowRequest,
   ListBorrowRequestsQuery,
@@ -53,6 +54,13 @@ export interface BorrowActor {
   id: string;
   role: Role;
   departmentId: string | null;
+}
+
+export interface PotentialLender {
+  departmentId: string;
+  departmentCode: string;
+  departmentName: string;
+  availableQty: number;
 }
 
 export class BorrowService {
@@ -200,5 +208,54 @@ export class BorrowService {
     }
 
     return borrowRequest;
+  }
+
+  // ─────────────── find lenders ───────────────
+
+  /**
+   * Task 5.2. Ranks every other academic department by how much of a
+   * component it can actually spare over a window, using the same
+   * availableToDept() the resolver's own tiers rely on — so "can lend" here
+   * means exactly what "available" means everywhere else in this codebase.
+   *
+   * qtyNeeded is accepted (and will matter once a later task picks how much
+   * to request from which lender) but does not filter today: a department
+   * offering less than the full amount is still a partial lender, not a
+   * non-lender, so the cutoff is availability > 0, not availability >=
+   * qtyNeeded.
+   */
+  static async findLenders(
+    componentId: string,
+    qtyNeeded: number,
+    windowStart: Date,
+    windowEnd: Date,
+    excludeDeptId: string,
+  ): Promise<PotentialLender[]> {
+    const departments = await prisma.department.findMany({
+      where: {
+        isOffice: false,
+        isActive: true,
+        id: { not: excludeDeptId },
+      },
+    });
+
+    const window: AvailabilityWindow = { from: windowStart, to: windowEnd };
+
+    const candidates = await Promise.all(
+      departments.map(async (department) => ({
+        departmentId: department.id,
+        departmentCode: department.code,
+        departmentName: department.name,
+        availableQty: await AvailabilityService.availableToDept(
+          department.id,
+          componentId,
+          window,
+        ),
+      })),
+    );
+
+    return candidates
+      .filter((candidate) => candidate.availableQty > 0)
+      .sort((a, b) => b.availableQty - a.availableQty);
   }
 }

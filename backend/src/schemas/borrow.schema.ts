@@ -44,3 +44,21 @@ export type CreateBorrowRequest = z.infer<typeof createBorrowRequestSchema>;
 export type ListBorrowRequestsQuery = z.infer<
   typeof listBorrowRequestsQuerySchema
 >;
+
+export const findLendersQuerySchema = z
+  .object({
+    componentId: z.string().min(1, "Component is required"),
+    qtyNeeded: z.coerce
+      .number()
+      .int("Quantity must be a whole number")
+      .positive("Quantity must be at least 1"),
+    windowStart: z.coerce.date(),
+    windowEnd: z.coerce.date(),
+    excludeDeptId: z.string().min(1, "Department to exclude is required"),
+  })
+  .refine((data) => data.windowStart < data.windowEnd, {
+    message: "The window's start must be before its end",
+    path: ["windowEnd"],
+  });
+
+export type FindLendersQuery = z.infer<typeof findLendersQuerySchema>;
