@@ -718,3 +718,105 @@ export interface RequisitionListResponse {
   page: number;
   limit: number;
 }
+
+// ─────────────── requisition resolution breakdown (task 4.3) ───────────────
+
+export interface ResolutionBreakdownLine {
+  lineId: string;
+  componentId: string;
+  componentCode: string;
+  componentName: string;
+  qtyNeeded: number;
+  qtyFromOwn: number;
+  qtyFromOffice: number;
+  qtyFromBorrow: number;
+  qtyToPurchase: number;
+  qtyShort: number;
+}
+
+export interface ResolutionBreakdown {
+  requisitionId: string;
+  status: RequisitionStatus;
+  lines: ResolutionBreakdownLine[];
+}
+
+// ─────────────── purchasing (task 5.14) ───────────────
+
+export type PurchaseStatus =
+  | "PENDING"
+  | "APPROVED"
+  | "RECEIVED"
+  | "REJECTED"
+  | "CANCELLED";
+
+export type Urgency = "LOW" | "NORMAL" | "HIGH" | "CRITICAL";
+
+export type ApprovalDecision = "PENDING" | "APPROVED" | "REJECTED" | "ESCALATED";
+
+export interface PurchaseRequestComponent {
+  id: string;
+  code: string;
+  name: string;
+  unit: string;
+}
+
+export interface PurchaseRequestRequisition {
+  id: string;
+  type: RequisitionType;
+  status: RequisitionStatus;
+  departmentId: string;
+  neededTo: string;
+}
+
+export interface ApprovalStep {
+  id: string;
+  purchaseRequestId: string;
+  level: number;
+  approverRole: Role;
+  approverId: string | null;
+  decision: ApprovalDecision;
+  decidedAt: string | null;
+  dueAt: string;
+  remarks: string | null;
+}
+
+export interface PurchaseRequest {
+  id: string;
+  requisitionId: string | null;
+  componentId: string;
+  qtyNeeded: number;
+  urgency: Urgency;
+  status: PurchaseStatus;
+  currentLevel: number;
+  raisedById: string;
+  poNumber: string | null;
+  receivedQty: number;
+  createdAt: string;
+  component: PurchaseRequestComponent;
+  requisition: PurchaseRequestRequisition | null;
+  steps: ApprovalStep[];
+}
+
+export interface PurchaseRequestListResponse {
+  data: PurchaseRequest[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface CreatePurchaseRequestRequest {
+  componentId: string;
+  qtyRequested: number;
+  reason: string;
+  requisitionId?: string;
+}
+
+export interface DecidePurchaseRequestRequest {
+  action: "APPROVE" | "REJECT";
+  remarks?: string;
+}
+
+export interface ReceiveGoodsRequest {
+  poNumber: string;
+  qtyReceived: number;
+}
