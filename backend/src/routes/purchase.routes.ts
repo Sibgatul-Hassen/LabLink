@@ -8,6 +8,7 @@ import {
   createPurchaseRequestSchema,
   decidePurchaseRequestSchema,
   listPurchaseRequestsQuerySchema,
+  receiveGoodsSchema,
 } from "../schemas/purchase.schema";
 import { PurchaseActor, PurchaseService } from "../services/purchase.service";
 import { AuthenticatedRequest } from "../types";
@@ -20,6 +21,7 @@ const NOT_FOUND_MESSAGES = [
   "Requisition not found",
   "No pending purchase requests found for this component",
   "No pending approval step found for this purchase request",
+  "Office department not found",
 ];
 
 // Task 5.13. Unlike every prior check on this router, "does this actor's
@@ -32,6 +34,7 @@ const FORBIDDEN_MESSAGES = [
 
 const BAD_REQUEST_MESSAGES = [
   "Purchase request is not pending a decision",
+  "Only an approved purchase request can receive goods",
 ];
 
 function handlePurchaseError(error: unknown, res: Response): void {
@@ -234,6 +237,37 @@ router.post(
       const purchaseRequest = await PurchaseService.decidePurchaseRequest(
         req.params.id,
         validated,
+        actor,
+      );
+
+      res.status(200).json({ data: purchaseRequest });
+    } catch (error) {
+      handlePurchaseError(error, res);
+    }
+  },
+);
+
+// Task 5.15. Deliberately narrower than the decide roles — receiving goods
+// is a physical stock-room act, not an approval rung, so only the central
+// store (who actually stocks the shelf) and SYSTEM_ADMIN can do it.
+router.post(
+  "/purchase-requests/:id/receive",
+  requireAuth,
+  requireRole("CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const actor = actorFrom(req);
+
+      if (!actor) {
+        res.status(401).json({ error: "Not authenticated" });
+        return;
+      }
+
+      const validated = receiveGoodsSchema.parse(req.body);
+      const purchaseRequest = await PurchaseService.receiveGoods(
+        req.params.id,
+        validated.poNumber,
+        validated.qtyReceived,
         actor,
       );
 

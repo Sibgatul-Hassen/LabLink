@@ -40,6 +40,14 @@ export const decidePurchaseRequestSchema = z.object({
   remarks: z.string().max(1000).optional(),
 });
 
+export const receiveGoodsSchema = z.object({
+  poNumber: z.string().min(1, "PO number is required"),
+  qtyReceived: z.coerce
+    .number()
+    .int("Quantity must be a whole number")
+    .positive("Quantity must be at least 1"),
+});
+
 export type CreatePurchaseRequestInput = z.infer<
   typeof createPurchaseRequestSchema
 >;
@@ -52,3 +60,4 @@ export type AggregatePurchaseRequestsInput = z.infer<
 export type DecidePurchaseRequestInput = z.infer<
   typeof decidePurchaseRequestSchema
 >;
+export type ReceiveGoodsInput = z.infer<typeof receiveGoodsSchema>;
