@@ -21,6 +21,7 @@ const testComponentCodes = [
   "TEST-REQ-GONE",
   "TEST-REQ-CONCURRENT",
   "TEST-REQ-TIER2",
+  "TEST-REQ-TIER3",
 ];
 const testEmails = [
   "req-student@test.com",
@@ -53,6 +54,14 @@ let inactiveComponentId: string;
 let studentId: string;
 
 async function clearRequisitions() {
+  // Tier 3 can create real BorrowRequest rows against a test requisition;
+  // BorrowRequest.requisition has no onDelete: Cascade, so these must go
+  // before the requisition itself or this delete throws an FK violation.
+  await prisma.borrowRequest.deleteMany({
+    where: {
+      requisition: { department: { code: { in: testDepartmentCodes } } },
+    },
+  });
   await prisma.allocation.deleteMany({
     where: {
       requisitionLine: { component: { code: { in: testComponentCodes } } },
@@ -985,6 +994,7 @@ describe("Requisition CRUD API Integration Tests", () => {
   describe("Submit and resolve", () => {
     let concurrentComponentId: string;
     let tier2ComponentId: string;
+    let tier3ComponentId: string;
     let officeDepartmentId: string;
 
     beforeAll(async () => {
@@ -1057,6 +1067,32 @@ describe("Requisition CRUD API Integration Tests", () => {
           departmentId: officeDepartmentId,
           componentId: tier2ComponentId,
           qty: 5,
+        },
+      });
+
+      // Tier 3 fixture: departmentA (the borrower in every test here) and the
+      // office both have zero quota for this component, but departmentB — an
+      // ordinary academic department, not the office — has real stock to
+      // lend, and nothing else in this test's own data competes for it.
+      const tier3Component = await prisma.component.create({
+        data: {
+          code: "TEST-REQ-TIER3",
+          name: "Requisition Test Tier 3 Component",
+          category: "Test",
+          sizeClass: "SMALL",
+        },
+      });
+      tier3ComponentId = tier3Component.id;
+
+      await prisma.stock.create({
+        data: { componentId: tier3ComponentId, onHand: 8, spareQty: 0 },
+      });
+
+      await prisma.departmentQuota.create({
+        data: {
+          departmentId: departmentBId,
+          componentId: tier3ComponentId,
+          qty: 8,
         },
       });
     });
@@ -1184,6 +1220,93 @@ describe("Requisition CRUD API Integration Tests", () => {
       expect(res.status).toBe(200);
       expect(res.body.data.status).toBe("SUBMITTED");
       expect(res.body.data.lines[0].qtyShort).toBeGreaterThan(0);
+    });
+
+    it("borrows from another department when neither own quota nor the office can cover it", async () => {
+      const created = await create(
+        {
+          type: "PERSONAL",
+          ...OWN_WINDOW,
+          lines: [{ componentId: tier3ComponentId, qtyNeeded: 5 }],
+        },
+        studentToken,
+      );
+
+      const res = await request(app)
+        .post(`/api/requisitions/${created.body.data.id}/submit`)
+        .set("Authorization", `Bearer ${studentToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.status).toBe("READY");
+      expect(res.body.data.lines[0].qtyOwnQuota).toBe(0);
+      expect(res.body.data.lines[0].qtySpare).toBe(0);
+      expect(res.body.data.lines[0].qtyBorrowed).toBe(5);
+      expect(res.body.data.lines[0].qtyShort).toBe(0);
+
+      const borrowRequest = await prisma.borrowRequest.findFirst({
+        where: {
+          requisitionId: created.body.data.id,
+          lenderDeptId: departmentBId,
+          borrowerDeptId: departmentAId,
+        },
+        include: { lines: true },
+      });
+
+      expect(borrowRequest).not.toBeNull();
+      expect(borrowRequest?.status).toBe("REQUESTED");
+      expect(borrowRequest?.lines).toHaveLength(1);
+      expect(borrowRequest?.lines[0].componentId).toBe(tier3ComponentId);
+      expect(borrowRequest?.lines[0].qtyRequested).toBe(5);
+
+      const borrowAllocation = await prisma.allocation.findFirst({
+        where: {
+          status: "HELD",
+          source: "BORROW",
+          sourceDeptId: departmentBId,
+          requisitionLine: { requisitionId: created.body.data.id },
+        },
+      });
+
+      expect(borrowAllocation).not.toBeNull();
+      expect(borrowAllocation?.qty).toBe(5);
+    });
+
+    it("lands on SUBMITTED with a partial borrow when lenders cannot cover the full shortfall", async () => {
+      const created = await create(
+        {
+          type: "PERSONAL",
+          ...OWN_WINDOW,
+          lines: [{ componentId: tier3ComponentId, qtyNeeded: 20 }],
+        },
+        studentToken,
+      );
+
+      const res = await request(app)
+        .post(`/api/requisitions/${created.body.data.id}/submit`)
+        .set("Authorization", `Bearer ${studentToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.status).toBe("SUBMITTED");
+      expect(res.body.data.lines[0].qtyBorrowed).toBe(8);
+      expect(res.body.data.lines[0].qtyShort).toBe(12);
+
+      const resolution = await request(app)
+        .get(`/api/requisitions/${created.body.data.id}/resolution`)
+        .set("Authorization", `Bearer ${studentToken}`);
+
+      expect(resolution.status).toBe(200);
+      expect(resolution.body.data.lines[0].qtyFromBorrow).toBe(8);
+
+      const borrowRequest = await prisma.borrowRequest.findFirst({
+        where: {
+          requisitionId: created.body.data.id,
+          lenderDeptId: departmentBId,
+        },
+        include: { lines: true },
+      });
+
+      expect(borrowRequest).not.toBeNull();
+      expect(borrowRequest?.lines[0].qtyRequested).toBe(8);
     });
 
     it("returns a per-line resolution breakdown", async () => {

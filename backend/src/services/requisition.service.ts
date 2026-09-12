@@ -12,6 +12,7 @@ import {
   AvailabilityService,
   AvailabilityWindow,
 } from "./availability.service";
+import { BorrowService } from "./borrow.service";
 import {
   CreateRequisitionLineRequest,
   CreateRequisitionRequest,
@@ -23,7 +24,7 @@ import {
 
 /**
  * Stage 4 resolves a requisition in tiers, each backed by a real RequisitionLine
- * column and a real AllocationSource value — except two the task brief named
+ * column and a real AllocationSource value — except a few the task briefs named
  * that don't exist on this schema, so here is the mapping actually implemented:
  *
  *   - RequisitionStatus has no PARTIALLY_READY. A requisition that is submitted
@@ -33,6 +34,8 @@ import {
  *     schema's "spare" pool (Stock.spareQty's own comment: "held outside every
  *     department quota"), so tier 2 allocations use AllocationSource.SPARE,
  *     with sourceDeptId set to the office department actually drawn from.
+ *   - RequisitionLine has no qtyFromBorrow column — the real field is
+ *     qtyBorrowed. Tier 3 writes there.
  */
 export type ResolutionBreakdownLine = {
   lineId: string;
@@ -812,9 +815,10 @@ export class RequisitionService {
   // ─────────────── resolver ───────────────
 
   /**
-   * Tier 1 (own quota) then tier 2 (the office department's quota, standing
-   * in for the shared spare pool) for a single line. Returns the qty still
-   * short after both tiers. Tiers 3 (borrow) and 4 (purchase) are later work.
+   * Tier 1 (own quota), tier 2 (the office department's quota, standing in
+   * for the shared spare pool), then tier 3 (borrowing from other academic
+   * departments) for a single line. Returns the qty still short after all
+   * three tiers. Tier 4 (purchase) is later work.
    */
   private static async resolveLine(
     tx: Prisma.TransactionClient,
@@ -827,6 +831,7 @@ export class RequisitionService {
     let remaining = line.qtyNeeded;
     let qtyOwnQuota = 0;
     let qtySpare = 0;
+    let qtyBorrowed = 0;
 
     const ownAvailable = await AvailabilityService.availableToDept(
       departmentId,
@@ -876,9 +881,74 @@ export class RequisitionService {
       }
     }
 
+    // Tier 3 — borrow from whichever other academic departments have spare
+    // capacity, most-available first, until the shortfall is covered or the
+    // lenders run out. findLenders() already excludes the requesting
+    // department and every office department (isOffice: false), so there is
+    // no risk of "borrowing" from tier 1 or tier 2's own source.
+    if (remaining > 0) {
+      const lenders = await BorrowService.findLenders(
+        line.componentId,
+        remaining,
+        window.from,
+        window.to,
+        departmentId,
+        tx,
+      );
+
+      for (const lender of lenders) {
+        if (remaining <= 0) {
+          break;
+        }
+
+        const fromLender = Math.min(remaining, lender.availableQty);
+
+        if (fromLender <= 0) {
+          continue;
+        }
+
+        // One BorrowRequest per lending department — the schema ties each
+        // request to exactly one lenderDeptId, so covering a shortfall from
+        // several departments means several requests, not one with several
+        // lines.
+        await tx.borrowRequest.create({
+          data: {
+            requisitionId,
+            lenderDeptId: lender.departmentId,
+            borrowerDeptId: departmentId,
+            status: "REQUESTED",
+            // Not specified by the task; the requisition's own window end is
+            // the only date this resolver has to offer, and matches how
+            // everything else here derives dates from context rather than
+            // inventing them.
+            returnBy: window.to,
+            lines: {
+              create: [
+                {
+                  componentId: line.componentId,
+                  qtyRequested: fromLender,
+                },
+              ],
+            },
+          },
+        });
+
+        await this.createAllocation(
+          line.id,
+          fromLender,
+          "BORROW",
+          lender.departmentId,
+          tx,
+        );
+
+        qtyBorrowed += fromLender;
+        remaining -= fromLender;
+      }
+    }
+
     await tx.requisitionLine.update({
       where: { id: line.id },
-      data: { qtyOwnQuota, qtySpare, qtyShort: remaining },
+      data: { qtyOwnQuota, qtySpare, qtyBorrowed, qtyShort: remaining },
     });
 
     return remaining;
@@ -887,9 +957,11 @@ export class RequisitionService {
   /**
    * Submits a DRAFT for resolution. The whole read-decide-write cycle runs
    * inside one Serializable transaction: two submits racing for the same
-   * last units will see Postgres abort one of them (P2034) rather than let
-   * both believe they got the stock, because tier 1/2's availability reads
-   * go through the same `tx` as the allocations they lead to.
+   * last units — whether a department's own quota, the office's spare pool,
+   * or another department's lendable stock — will see Postgres abort one of
+   * them (P2034) rather than let both believe they got the stock, because
+   * every tier's availability reads go through the same `tx` as the
+   * allocations (and, for tier 3, BorrowRequests) they lead to.
    */
   static async submitRequisition(
     id: string,
