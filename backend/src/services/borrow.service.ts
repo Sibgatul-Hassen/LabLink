@@ -273,4 +273,45 @@ export class BorrowService {
       .filter((candidate) => candidate.availableQty > 0)
       .sort((a, b) => b.availableQty - a.availableQty);
   }
+
+  // ─────────────── incoming / outgoing inbox ───────────────
+
+  /**
+   * Task 5.4. A department's incoming inbox: loans it has been asked to make
+   * that it has not yet decided on. Scoped to REQUESTED only — once a lender
+   * approves or rejects, the request has left the inbox and belongs in its
+   * history instead.
+   *
+   * deptId ?? "__none__" mirrors scopeFilter()'s own handling of an actor
+   * with no department: it matches nothing, so the inbox reads as empty
+   * rather than (incorrectly) matching every lenderDeptId-less row.
+   */
+  static async listIncoming(
+    deptId: string | null,
+  ): Promise<BorrowRequestWithRelations[]> {
+    return prisma.borrowRequest.findMany({
+      where: {
+        lenderDeptId: deptId ?? "__none__",
+        status: "REQUESTED",
+      },
+      include: borrowRequestInclude,
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
+  /**
+   * The mirror image: everything this department has asked to borrow,
+   * whatever its current status — a department tracking its own outgoing
+   * requests needs to see approvals and rejections too, not just the ones
+   * still pending.
+   */
+  static async listOutgoing(
+    deptId: string | null,
+  ): Promise<BorrowRequestWithRelations[]> {
+    return prisma.borrowRequest.findMany({
+      where: { borrowerDeptId: deptId ?? "__none__" },
+      include: borrowRequestInclude,
+      orderBy: { createdAt: "desc" },
+    });
+  }
 }

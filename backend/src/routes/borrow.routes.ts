@@ -155,6 +155,52 @@ router.get(
   },
 );
 
+// Task 5.4. Both literal segments, so both must be registered ahead of
+// "/borrow-requests/:id" for the same reason "/borrow-requests/lenders" is.
+router.get(
+  "/borrow-requests/incoming",
+  requireAuth,
+  requireRole("DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      if (!req.user) {
+        res.status(401).json({ error: "Not authenticated" });
+        return;
+      }
+
+      const borrowRequests = await BorrowService.listIncoming(
+        req.user.departmentId,
+      );
+
+      res.status(200).json({ data: borrowRequests });
+    } catch (error) {
+      handleBorrowError(error, res);
+    }
+  },
+);
+
+router.get(
+  "/borrow-requests/outgoing",
+  requireAuth,
+  requireRole("DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      if (!req.user) {
+        res.status(401).json({ error: "Not authenticated" });
+        return;
+      }
+
+      const borrowRequests = await BorrowService.listOutgoing(
+        req.user.departmentId,
+      );
+
+      res.status(200).json({ data: borrowRequests });
+    } catch (error) {
+      handleBorrowError(error, res);
+    }
+  },
+);
+
 router.get(
   "/borrow-requests/:id",
   requireAuth,

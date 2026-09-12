@@ -476,4 +476,84 @@ describe("Borrow Request API Integration Tests", () => {
       expect(ids).not.toContain(deptZeroId);
     });
   });
+
+  describe("INBOX - GET /api/borrow-requests/incoming|outgoing", () => {
+    it("rejects unauthenticated requests", async () => {
+      const incoming = await request(app).get("/api/borrow-requests/incoming");
+      expect(incoming.status).toBe(401);
+
+      const outgoing = await request(app).get("/api/borrow-requests/outgoing");
+      expect(outgoing.status).toBe(401);
+    });
+
+    it("is 403 for a disallowed role", async () => {
+      const incoming = await request(app)
+        .get("/api/borrow-requests/incoming")
+        .set("Authorization", `Bearer ${studentToken}`);
+      expect(incoming.status).toBe(403);
+
+      const outgoing = await request(app)
+        .get("/api/borrow-requests/outgoing")
+        .set("Authorization", `Bearer ${studentToken}`);
+      expect(outgoing.status).toBe(403);
+    });
+
+    it("shows the lender its incoming requests, with borrower/component/lines included", async () => {
+      const res = await request(app)
+        .get("/api/borrow-requests/incoming")
+        .set("Authorization", `Bearer ${lenderHeadToken}`);
+
+      expect(res.status).toBe(200);
+
+      const ids = res.body.data.map((br: { id: string }) => br.id);
+      expect(ids).toContain(brBorrowerLenderId);
+      expect(ids).toContain(brOtherLenderId);
+
+      const match = res.body.data.find(
+        (br: { id: string }) => br.id === brBorrowerLenderId,
+      );
+      expect(match.borrower.id).toBe(deptBorrowerId);
+      expect(match.lines[0].component.id).toBe(componentId);
+    });
+
+    it("shows the borrower its outgoing requests, with lender/component/lines included", async () => {
+      const res = await request(app)
+        .get("/api/borrow-requests/outgoing")
+        .set("Authorization", `Bearer ${deptStoreHeadToken}`);
+
+      expect(res.status).toBe(200);
+
+      const ids = res.body.data.map((br: { id: string }) => br.id);
+      expect(ids).toContain(brBorrowerLenderId);
+
+      const match = res.body.data.find(
+        (br: { id: string }) => br.id === brBorrowerLenderId,
+      );
+      expect(match.lender.id).toBe(deptLenderId);
+      expect(match.lines[0].component.id).toBe(componentId);
+    });
+
+    it("does not show the lender its own loans in outgoing", async () => {
+      const res = await request(app)
+        .get("/api/borrow-requests/outgoing")
+        .set("Authorization", `Bearer ${lenderHeadToken}`);
+
+      expect(res.status).toBe(200);
+
+      const ids = res.body.data.map((br: { id: string }) => br.id);
+      expect(ids).not.toContain(brBorrowerLenderId);
+      expect(ids).not.toContain(brOtherLenderId);
+    });
+
+    it("does not show the borrower its own request in incoming", async () => {
+      const res = await request(app)
+        .get("/api/borrow-requests/incoming")
+        .set("Authorization", `Bearer ${deptStoreHeadToken}`);
+
+      expect(res.status).toBe(200);
+
+      const ids = res.body.data.map((br: { id: string }) => br.id);
+      expect(ids).not.toContain(brBorrowerLenderId);
+    });
+  });
 });
