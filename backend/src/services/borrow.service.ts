@@ -1,7 +1,11 @@
 import { Prisma, Role } from "@prisma/client";
 
 import { prisma } from "../lib/prisma";
-import { AvailabilityService, AvailabilityWindow } from "./availability.service";
+import {
+  AvailabilityQueryClient,
+  AvailabilityService,
+  AvailabilityWindow,
+} from "./availability.service";
 import {
   CreateBorrowRequest,
   ListBorrowRequestsQuery,
@@ -223,6 +227,14 @@ export class BorrowService {
    * offering less than the full amount is still a partial lender, not a
    * non-lender, so the cutoff is availability > 0, not availability >=
    * qtyNeeded.
+   *
+   * Takes the same optional transaction client AvailabilityService itself
+   * does. Tier 3 of the resolver (requisition.service.ts) calls this from
+   * inside its Serializable transaction — without threading `client` through
+   * here too, this method's availability reads would run on a separate
+   * connection from the BorrowRequest/Allocation writes they lead to, and
+   * Postgres would have no way to catch two submits racing for the same
+   * lender's units.
    */
   static async findLenders(
     componentId: string,
@@ -230,8 +242,9 @@ export class BorrowService {
     windowStart: Date,
     windowEnd: Date,
     excludeDeptId: string,
+    client: AvailabilityQueryClient = prisma,
   ): Promise<PotentialLender[]> {
-    const departments = await prisma.department.findMany({
+    const departments = await client.department.findMany({
       where: {
         isOffice: false,
         isActive: true,
@@ -250,6 +263,8 @@ export class BorrowService {
           department.id,
           componentId,
           window,
+          undefined,
+          client,
         ),
       })),
     );
