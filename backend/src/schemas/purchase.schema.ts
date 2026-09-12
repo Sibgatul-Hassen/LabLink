@@ -31,6 +31,15 @@ export const aggregatePurchaseRequestsSchema = z.object({
   componentId: z.string().min(1, "Component is required"),
 });
 
+/**
+ * Task 5.13. remarks stays optional per the brief — unlike rejectBorrow
+ * elsewhere in this codebase, nothing requires a reason for a rejection here.
+ */
+export const decidePurchaseRequestSchema = z.object({
+  action: z.enum(["APPROVE", "REJECT"]),
+  remarks: z.string().max(1000).optional(),
+});
+
 export type CreatePurchaseRequestInput = z.infer<
   typeof createPurchaseRequestSchema
 >;
@@ -39,4 +48,7 @@ export type ListPurchaseRequestsQuery = z.infer<
 >;
 export type AggregatePurchaseRequestsInput = z.infer<
   typeof aggregatePurchaseRequestsSchema
+>;
+export type DecidePurchaseRequestInput = z.infer<
+  typeof decidePurchaseRequestSchema
 >;

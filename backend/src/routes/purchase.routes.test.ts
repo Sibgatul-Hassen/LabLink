@@ -32,6 +32,10 @@ const testComponentCodes = [
   "TEST-PUR-COMP-QUEUE-LOW",
   "TEST-PUR-COMP-QUEUE-OTHERROLE",
   "TEST-PUR-COMP-QUEUE-DECIDED",
+  "TEST-PUR-COMP-DECIDE-WRONGRUNG",
+  "TEST-PUR-COMP-DECIDE-LADDER",
+  "TEST-PUR-COMP-DECIDE-REJECT",
+  "TEST-PUR-COMP-DECIDE-FULL",
 ];
 
 const testEmails = [
@@ -40,6 +44,7 @@ const testEmails = [
   "pur-student@test.com",
   "pur-central@test.com",
   "pur-officeadmin@test.com",
+  "pur-deptstorehead@test.com",
 ];
 
 async function cleanupTestData() {
@@ -70,6 +75,10 @@ describe("Purchase Request API Integration Tests", () => {
   let queueLowComponentId: string;
   let queueOtherRoleComponentId: string;
   let queueDecidedComponentId: string;
+  let decideWrongRungComponentId: string;
+  let decideLadderComponentId: string;
+  let decideRejectComponentId: string;
+  let decideFullComponentId: string;
 
   let labAsstUserId: string;
   let otherLabAsstUserId: string;
@@ -79,6 +88,7 @@ describe("Purchase Request API Integration Tests", () => {
   let studentToken: string;
   let centralToken: string;
   let officeAdminToken: string;
+  let deptStoreHeadToken: string;
 
   beforeAll(async () => {
     await cleanupTestData();
@@ -103,6 +113,10 @@ describe("Purchase Request API Integration Tests", () => {
       queueLowComponent,
       queueOtherRoleComponent,
       queueDecidedComponent,
+      decideWrongRungComponent,
+      decideLadderComponent,
+      decideRejectComponent,
+      decideFullComponent,
     ] = await Promise.all(
       testComponentCodes.map((code, index) =>
         prisma.component.create({
@@ -126,6 +140,10 @@ describe("Purchase Request API Integration Tests", () => {
     queueLowComponentId = queueLowComponent.id;
     queueOtherRoleComponentId = queueOtherRoleComponent.id;
     queueDecidedComponentId = queueDecidedComponent.id;
+    decideWrongRungComponentId = decideWrongRungComponent.id;
+    decideLadderComponentId = decideLadderComponent.id;
+    decideRejectComponentId = decideRejectComponent.id;
+    decideFullComponentId = decideFullComponent.id;
 
     const hashedPassword = await bcryptjs.hash("test123", 10);
 
@@ -173,6 +191,16 @@ describe("Purchase Request API Integration Tests", () => {
 
     await prisma.user.create({
       data: {
+        email: "pur-deptstorehead@test.com",
+        passwordHash: hashedPassword,
+        fullName: "Purchase Test Dept Store Head",
+        role: "DEPT_STORE_HEAD",
+        departmentId: deptA.id,
+      },
+    });
+
+    await prisma.user.create({
+      data: {
         email: "pur-officeadmin@test.com",
         passwordHash: hashedPassword,
         fullName: "Purchase Test Office Admin",
@@ -194,6 +222,7 @@ describe("Purchase Request API Integration Tests", () => {
     studentToken = await login("pur-student@test.com");
     centralToken = await login("pur-central@test.com");
     officeAdminToken = await login("pur-officeadmin@test.com");
+    deptStoreHeadToken = await login("pur-deptstorehead@test.com");
   });
 
   afterAll(async () => {
@@ -645,6 +674,164 @@ describe("Purchase Request API Integration Tests", () => {
         .set("Authorization", `Bearer ${labAsstToken}`);
 
       expect(res.status).toBe(403);
+    });
+  });
+
+  describe("DECIDE - POST /api/purchase-requests/:id/decide - Tasks 5.12 & 5.13", () => {
+    it("rejects unauthenticated decide requests", async () => {
+      const res = await request(app)
+        .post("/api/purchase-requests/some-id/decide")
+        .send({ action: "APPROVE" });
+
+      expect(res.status).toBe(401);
+    });
+
+    it("is 403 for a role that can never hold any rung", async () => {
+      const res = await request(app)
+        .post("/api/purchase-requests/some-id/decide")
+        .set("Authorization", `Bearer ${studentToken}`)
+        .send({ action: "APPROVE" });
+
+      expect(res.status).toBe(403);
+    });
+
+    it("is 403 for the right kind of role but the wrong rung", async () => {
+      const created = await request(app)
+        .post("/api/purchase-requests")
+        .set("Authorization", `Bearer ${labAsstToken}`)
+        .send({
+          componentId: decideWrongRungComponentId,
+          qtyRequested: 5,
+          reason: "Wrong rung test",
+        });
+      expect(created.status).toBe(201);
+
+      // OFFICE_ADMIN is a valid approver in general (rung 3) — just not
+      // for this request's current rung, which is still 1
+      // (CENTRAL_STORE_OFFICER).
+      const res = await request(app)
+        .post(`/api/purchase-requests/${created.body.data.id}/decide`)
+        .set("Authorization", `Bearer ${officeAdminToken}`)
+        .send({ action: "APPROVE" });
+
+      expect(res.status).toBe(403);
+    });
+
+    it("walks a request up all 3 rungs, minting the next ApprovalStep at each approval, then marks it APPROVED", async () => {
+      const created = await request(app)
+        .post("/api/purchase-requests")
+        .set("Authorization", `Bearer ${labAsstToken}`)
+        .send({
+          componentId: decideLadderComponentId,
+          qtyRequested: 5,
+          reason: "Ladder test",
+        });
+      expect(created.status).toBe(201);
+      const id = created.body.data.id;
+
+      const rung1 = await request(app)
+        .post(`/api/purchase-requests/${id}/decide`)
+        .set("Authorization", `Bearer ${centralToken}`)
+        .send({ action: "APPROVE", remarks: "Confirmed dept is out" });
+
+      expect(rung1.status).toBe(200);
+      expect(rung1.body.data.status).toBe("PENDING");
+      expect(rung1.body.data.currentLevel).toBe(2);
+      expect(rung1.body.data.steps).toHaveLength(2);
+      expect(rung1.body.data.steps[0].decision).toBe("APPROVED");
+      expect(rung1.body.data.steps[1].level).toBe(2);
+      expect(rung1.body.data.steps[1].approverRole).toBe("DEPT_STORE_HEAD");
+      expect(rung1.body.data.steps[1].decision).toBe("PENDING");
+
+      const rung2 = await request(app)
+        .post(`/api/purchase-requests/${id}/decide`)
+        .set("Authorization", `Bearer ${deptStoreHeadToken}`)
+        .send({ action: "APPROVE", remarks: "Endorsed" });
+
+      expect(rung2.status).toBe(200);
+      expect(rung2.body.data.status).toBe("PENDING");
+      expect(rung2.body.data.currentLevel).toBe(3);
+      expect(rung2.body.data.steps).toHaveLength(3);
+      expect(rung2.body.data.steps[1].decision).toBe("APPROVED");
+      expect(rung2.body.data.steps[2].level).toBe(3);
+      expect(rung2.body.data.steps[2].approverRole).toBe("OFFICE_ADMIN");
+      expect(rung2.body.data.steps[2].decision).toBe("PENDING");
+
+      const rung3 = await request(app)
+        .post(`/api/purchase-requests/${id}/decide`)
+        .set("Authorization", `Bearer ${officeAdminToken}`)
+        .send({ action: "APPROVE", remarks: "Approved and buying" });
+
+      expect(rung3.status).toBe(200);
+      expect(rung3.body.data.status).toBe("APPROVED");
+      expect(rung3.body.data.steps).toHaveLength(3);
+      expect(rung3.body.data.steps[2].decision).toBe("APPROVED");
+    });
+
+    it("rejects at rung 1 and sets status REJECTED without creating a rung-2 step", async () => {
+      const created = await request(app)
+        .post("/api/purchase-requests")
+        .set("Authorization", `Bearer ${labAsstToken}`)
+        .send({
+          componentId: decideRejectComponentId,
+          qtyRequested: 5,
+          reason: "Reject test",
+        });
+      expect(created.status).toBe(201);
+      const id = created.body.data.id;
+
+      const res = await request(app)
+        .post(`/api/purchase-requests/${id}/decide`)
+        .set("Authorization", `Bearer ${centralToken}`)
+        .send({ action: "REJECT", remarks: "Dept actually has stock" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.status).toBe("REJECTED");
+      expect(res.body.data.steps).toHaveLength(1);
+      expect(res.body.data.steps[0].decision).toBe("REJECTED");
+    });
+
+    it("runs the full 3-rung happy path end to end", async () => {
+      const created = await request(app)
+        .post("/api/purchase-requests")
+        .set("Authorization", `Bearer ${labAsstToken}`)
+        .send({
+          componentId: decideFullComponentId,
+          qtyRequested: 12,
+          reason: "Full ladder happy path",
+        });
+      expect(created.status).toBe(201);
+      const id = created.body.data.id;
+
+      for (const token of [
+        centralToken,
+        deptStoreHeadToken,
+        officeAdminToken,
+      ]) {
+        const res = await request(app)
+          .post(`/api/purchase-requests/${id}/decide`)
+          .set("Authorization", `Bearer ${token}`)
+          .send({ action: "APPROVE" });
+
+        expect(res.status).toBe(200);
+      }
+
+      const final = await prisma.purchaseRequest.findUnique({
+        where: { id },
+        include: { steps: { orderBy: { level: "asc" } } },
+      });
+
+      expect(final?.status).toBe("APPROVED");
+      expect(final?.currentLevel).toBe(3);
+      expect(final?.steps).toHaveLength(3);
+      expect(
+        final?.steps.every((step) => step.decision === "APPROVED"),
+      ).toBe(true);
+      expect(final?.steps.map((step) => step.approverRole)).toEqual([
+        "CENTRAL_STORE_OFFICER",
+        "DEPT_STORE_HEAD",
+        "OFFICE_ADMIN",
+      ]);
     });
   });
 });
