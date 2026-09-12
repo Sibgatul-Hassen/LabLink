@@ -135,6 +135,30 @@ router.get(
   },
 );
 
+// Task 5.11. Registered before /purchase-requests/:id, which would
+// otherwise swallow this literal path as an :id lookup (same method, same
+// path shape) — Express matches routes in registration order.
+router.get(
+  "/purchase-requests/queue",
+  requireAuth,
+  requireRole("CENTRAL_STORE_OFFICER", "OFFICE_ADMIN", "SYSTEM_ADMIN"),
+  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const actor = actorFrom(req);
+
+      if (!actor) {
+        res.status(401).json({ error: "Not authenticated" });
+        return;
+      }
+
+      const purchaseRequests = await PurchaseService.getQueue(actor);
+      res.status(200).json({ data: purchaseRequests });
+    } catch (error) {
+      handlePurchaseError(error, res);
+    }
+  },
+);
+
 router.get(
   "/purchase-requests/:id",
   requireAuth,

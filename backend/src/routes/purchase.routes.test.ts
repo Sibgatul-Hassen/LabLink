@@ -4,6 +4,7 @@ import express from "express";
 import request from "supertest";
 
 import { prisma } from "../lib/prisma";
+import { PurchaseService, UrgencyInput } from "../services/purchase.service";
 import authRouter from "./auth.routes";
 import purchaseRouter from "./purchase.routes";
 
@@ -27,6 +28,10 @@ const testComponentCodes = [
   "TEST-PUR-COMP-GET-OTHER",
   "TEST-PUR-COMP-AGG",
   "TEST-PUR-COMP-AGG-MANUAL",
+  "TEST-PUR-COMP-QUEUE-CRITICAL",
+  "TEST-PUR-COMP-QUEUE-LOW",
+  "TEST-PUR-COMP-QUEUE-OTHERROLE",
+  "TEST-PUR-COMP-QUEUE-DECIDED",
 ];
 
 const testEmails = [
@@ -34,6 +39,7 @@ const testEmails = [
   "pur-other-labasst@test.com",
   "pur-student@test.com",
   "pur-central@test.com",
+  "pur-officeadmin@test.com",
 ];
 
 async function cleanupTestData() {
@@ -60,6 +66,10 @@ describe("Purchase Request API Integration Tests", () => {
   let getOtherComponentId: string;
   let aggComponentId: string;
   let manualAggComponentId: string;
+  let queueCriticalComponentId: string;
+  let queueLowComponentId: string;
+  let queueOtherRoleComponentId: string;
+  let queueDecidedComponentId: string;
 
   let labAsstUserId: string;
   let otherLabAsstUserId: string;
@@ -68,6 +78,7 @@ describe("Purchase Request API Integration Tests", () => {
   let otherLabAsstToken: string;
   let studentToken: string;
   let centralToken: string;
+  let officeAdminToken: string;
 
   beforeAll(async () => {
     await cleanupTestData();
@@ -88,6 +99,10 @@ describe("Purchase Request API Integration Tests", () => {
       getOtherComponent,
       aggComponent,
       manualAggComponent,
+      queueCriticalComponent,
+      queueLowComponent,
+      queueOtherRoleComponent,
+      queueDecidedComponent,
     ] = await Promise.all(
       testComponentCodes.map((code, index) =>
         prisma.component.create({
@@ -107,6 +122,10 @@ describe("Purchase Request API Integration Tests", () => {
     getOtherComponentId = getOtherComponent.id;
     aggComponentId = aggComponent.id;
     manualAggComponentId = manualAggComponent.id;
+    queueCriticalComponentId = queueCriticalComponent.id;
+    queueLowComponentId = queueLowComponent.id;
+    queueOtherRoleComponentId = queueOtherRoleComponent.id;
+    queueDecidedComponentId = queueDecidedComponent.id;
 
     const hashedPassword = await bcryptjs.hash("test123", 10);
 
@@ -152,6 +171,16 @@ describe("Purchase Request API Integration Tests", () => {
       },
     });
 
+    await prisma.user.create({
+      data: {
+        email: "pur-officeadmin@test.com",
+        passwordHash: hashedPassword,
+        fullName: "Purchase Test Office Admin",
+        role: "OFFICE_ADMIN",
+        departmentId: null,
+      },
+    });
+
     async function login(email: string): Promise<string> {
       const res = await request(app)
         .post("/api/auth/login")
@@ -164,6 +193,7 @@ describe("Purchase Request API Integration Tests", () => {
     otherLabAsstToken = await login("pur-other-labasst@test.com");
     studentToken = await login("pur-student@test.com");
     centralToken = await login("pur-central@test.com");
+    officeAdminToken = await login("pur-officeadmin@test.com");
   });
 
   afterAll(async () => {
@@ -448,5 +478,223 @@ describe("Purchase Request API Integration Tests", () => {
 
       expect(res.status).toBe(403);
     });
+  });
+
+  describe("QUEUE - GET /api/purchase-requests/queue - Task 5.11", () => {
+    let criticalId: string;
+    let lowId: string;
+    let otherRoleId: string;
+    let decidedId: string;
+
+    beforeAll(async () => {
+      const DAY_MS = 24 * 60 * 60 * 1000;
+
+      // Seeded directly via Prisma — the API's createPurchaseRequest always
+      // names CENTRAL_STORE_OFFICER as the level-1 approver with a fixed
+      // 7-day SLA, so exercising a different rung/decision/deadline
+      // combination requires bypassing it, same as the manual-aggregate
+      // test above.
+      const critical = await prisma.purchaseRequest.create({
+        data: {
+          componentId: queueCriticalComponentId,
+          qtyNeeded: 5,
+          raisedById: labAsstUserId,
+          status: "PENDING",
+          currentLevel: 1,
+          steps: {
+            create: [
+              {
+                level: 1,
+                approverRole: "CENTRAL_STORE_OFFICER",
+                decision: "PENDING",
+                dueAt: new Date(Date.now() + 1 * DAY_MS),
+              },
+            ],
+          },
+        },
+      });
+      criticalId = critical.id;
+
+      const low = await prisma.purchaseRequest.create({
+        data: {
+          componentId: queueLowComponentId,
+          qtyNeeded: 5,
+          raisedById: labAsstUserId,
+          status: "PENDING",
+          currentLevel: 1,
+          steps: {
+            create: [
+              {
+                level: 1,
+                approverRole: "CENTRAL_STORE_OFFICER",
+                decision: "PENDING",
+                dueAt: new Date(Date.now() + 20 * DAY_MS),
+              },
+            ],
+          },
+        },
+      });
+      lowId = low.id;
+
+      const otherRole = await prisma.purchaseRequest.create({
+        data: {
+          componentId: queueOtherRoleComponentId,
+          qtyNeeded: 5,
+          raisedById: labAsstUserId,
+          status: "PENDING",
+          currentLevel: 1,
+          steps: {
+            create: [
+              {
+                level: 1,
+                approverRole: "OFFICE_ADMIN",
+                decision: "PENDING",
+                dueAt: new Date(Date.now() + 1 * DAY_MS),
+              },
+            ],
+          },
+        },
+      });
+      otherRoleId = otherRole.id;
+
+      const decided = await prisma.purchaseRequest.create({
+        data: {
+          componentId: queueDecidedComponentId,
+          qtyNeeded: 5,
+          raisedById: labAsstUserId,
+          status: "PENDING",
+          currentLevel: 1,
+          steps: {
+            create: [
+              {
+                level: 1,
+                approverRole: "CENTRAL_STORE_OFFICER",
+                decision: "APPROVED",
+                decidedAt: new Date(),
+                dueAt: new Date(Date.now() + 1 * DAY_MS),
+              },
+            ],
+          },
+        },
+      });
+      decidedId = decided.id;
+    });
+
+    it("returns only requests at the caller's own current rung", async () => {
+      const res = await request(app)
+        .get("/api/purchase-requests/queue")
+        .set("Authorization", `Bearer ${centralToken}`);
+
+      expect(res.status).toBe(200);
+
+      const ids = res.body.data.map((pr: { id: string }) => pr.id);
+      expect(ids).toContain(criticalId);
+      expect(ids).toContain(lowId);
+      // Assigned to a different approverRole and already decided — neither
+      // belongs in CENTRAL_STORE_OFFICER's own queue.
+      expect(ids).not.toContain(otherRoleId);
+      expect(ids).not.toContain(decidedId);
+    });
+
+    it("shows an oversight role every pending rung", async () => {
+      const res = await request(app)
+        .get("/api/purchase-requests/queue")
+        .set("Authorization", `Bearer ${officeAdminToken}`);
+
+      expect(res.status).toBe(200);
+
+      const ids = res.body.data.map((pr: { id: string }) => pr.id);
+      expect(ids).toContain(criticalId);
+      expect(ids).toContain(lowId);
+      expect(ids).toContain(otherRoleId);
+      // Still excluded — already decided, not "current rung" for anyone.
+      expect(ids).not.toContain(decidedId);
+    });
+
+    it("sorts CRITICAL before LOW and includes computed urgency", async () => {
+      const res = await request(app)
+        .get("/api/purchase-requests/queue")
+        .set("Authorization", `Bearer ${centralToken}`);
+
+      expect(res.status).toBe(200);
+
+      const ids = res.body.data.map((pr: { id: string }) => pr.id);
+      const criticalIndex = ids.indexOf(criticalId);
+      const lowIndex = ids.indexOf(lowId);
+      expect(criticalIndex).toBeGreaterThanOrEqual(0);
+      expect(lowIndex).toBeGreaterThan(criticalIndex);
+
+      const critical = res.body.data.find(
+        (pr: { id: string }) => pr.id === criticalId,
+      );
+      const low = res.body.data.find(
+        (pr: { id: string }) => pr.id === lowId,
+      );
+      expect(critical.urgency).toBe("CRITICAL");
+      expect(low.urgency).toBe("LOW");
+    });
+
+    it("rejects unauthenticated queue requests", async () => {
+      const res = await request(app).get("/api/purchase-requests/queue");
+      expect(res.status).toBe(401);
+    });
+
+    it("is 403 for a role not allowed to view the queue", async () => {
+      const res = await request(app)
+        .get("/api/purchase-requests/queue")
+        .set("Authorization", `Bearer ${labAsstToken}`);
+
+      expect(res.status).toBe(403);
+    });
+  });
+});
+
+describe("PurchaseService.urgencyFor() - Task 5.11", () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
+  function buildInput(daysUntilNeeded: number): UrgencyInput {
+    return {
+      currentLevel: 1,
+      createdAt: new Date(),
+      requisition: null,
+      steps: [
+        {
+          level: 1,
+          dueAt: new Date(Date.now() + daysUntilNeeded * DAY_MS),
+        },
+      ],
+    };
+  }
+
+  it("is CRITICAL within 3 days (including overdue)", () => {
+    expect(PurchaseService.urgencyFor(buildInput(-1))).toBe("CRITICAL");
+    expect(PurchaseService.urgencyFor(buildInput(2))).toBe("CRITICAL");
+    expect(PurchaseService.urgencyFor(buildInput(3))).toBe("CRITICAL");
+  });
+
+  it("is HIGH between 3 and 7 days", () => {
+    expect(PurchaseService.urgencyFor(buildInput(5))).toBe("HIGH");
+    expect(PurchaseService.urgencyFor(buildInput(7))).toBe("HIGH");
+  });
+
+  it("is NORMAL (the brief's MEDIUM tier) between 7 and 14 days", () => {
+    expect(PurchaseService.urgencyFor(buildInput(10))).toBe("NORMAL");
+    expect(PurchaseService.urgencyFor(buildInput(14))).toBe("NORMAL");
+  });
+
+  it("is LOW beyond 14 days", () => {
+    expect(PurchaseService.urgencyFor(buildInput(15))).toBe("LOW");
+    expect(PurchaseService.urgencyFor(buildInput(30))).toBe("LOW");
+  });
+
+  it("prefers the linked requisition's neededTo over the approval step's dueAt", () => {
+    const input: UrgencyInput = {
+      currentLevel: 1,
+      createdAt: new Date(),
+      requisition: { neededTo: new Date(Date.now() + 1 * DAY_MS) },
+      steps: [{ level: 1, dueAt: new Date(Date.now() + 20 * DAY_MS) }],
+    };
+
+    expect(PurchaseService.urgencyFor(input)).toBe("CRITICAL");
   });
 });
