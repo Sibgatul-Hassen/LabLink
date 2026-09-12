@@ -2,6 +2,7 @@ import { Prisma, Role, Urgency } from "@prisma/client";
 
 import { prisma } from "../lib/prisma";
 import { AvailabilityQueryClient } from "./availability.service";
+import { NotificationService } from "./notification.service";
 import {
   CreatePurchaseRequestInput,
   DecidePurchaseRequestInput,
@@ -583,14 +584,29 @@ export class PurchaseService {
           where: { id: purchaseRequest.id },
           data: { status: "REJECTED" },
         });
+
+        // Task 5.20. Whoever raised it, notified — the same raisedById a
+        // rejection at any rung (1, 2, or 3) always has, regardless of how
+        // far the request got before being turned down.
+        await NotificationService.createNotification(
+          {
+            userId: purchaseRequest.raisedById,
+            title: "Purchase request rejected",
+            body: `Your purchase request was rejected at rung ${purchaseRequest.currentLevel}.`,
+            refType: "PURCHASE",
+            refId: purchaseRequest.id,
+          },
+          tx,
+        );
       } else if (purchaseRequest.currentLevel < FINAL_RUNG_LEVEL) {
         const nextLevel = purchaseRequest.currentLevel + 1;
+        const nextApproverRole = RUNG_APPROVER_ROLES[nextLevel];
 
         await tx.approvalStep.create({
           data: {
             purchaseRequestId: purchaseRequest.id,
             level: nextLevel,
-            approverRole: RUNG_APPROVER_ROLES[nextLevel],
+            approverRole: nextApproverRole,
             decision: "PENDING",
             dueAt: new Date(Date.now() + FIRST_APPROVAL_SLA_MS),
           },
@@ -600,11 +616,42 @@ export class PurchaseService {
           where: { id: purchaseRequest.id },
           data: { currentLevel: nextLevel },
         });
+
+        // Task 5.20. The new step has no approverId yet — it's only ever
+        // assigned once someone actually decides on it — so there is no
+        // specific individual to notify, only the role that rung belongs
+        // to. Every active user holding that role gets notified.
+        await NotificationService.notifyRole(
+          nextApproverRole,
+          {
+            title: "Purchase request awaiting your approval",
+            body: `A purchase request has escalated to rung ${nextLevel} and needs your decision.`,
+            refType: "PURCHASE",
+            refId: purchaseRequest.id,
+          },
+          tx,
+        );
       } else {
         await tx.purchaseRequest.update({
           where: { id: purchaseRequest.id },
           data: { status: "APPROVED" },
         });
+
+        // Task 5.20. Fully approved — no rung is left to notify, so this
+        // notifies whichever role actually goes on to receive the goods:
+        // CENTRAL_STORE_OFFICER, the only role receiveGoods() (Task 5.15)
+        // lets call it (besides SYSTEM_ADMIN, an override role rather than
+        // the one that would routinely do this).
+        await NotificationService.notifyRole(
+          "CENTRAL_STORE_OFFICER",
+          {
+            title: "Purchase request fully approved",
+            body: "A purchase request has been fully approved and is ready to be ordered/received.",
+            refType: "PURCHASE",
+            refId: purchaseRequest.id,
+          },
+          tx,
+        );
       }
 
       const updated = await tx.purchaseRequest.findUniqueOrThrow({
@@ -692,6 +739,30 @@ export class PurchaseService {
         },
         include: purchaseRequestInclude,
       });
+
+      // Task 5.20. requisitionId is optional — a manually-raised or
+      // reorder-point-triggered purchase request (Task 5.19) has none, and
+      // there is no "original requisition's requester" to notify in that
+      // case, so this only fires when one actually exists.
+      if (updated.requisitionId) {
+        const requisition = await tx.requisition.findUnique({
+          where: { id: updated.requisitionId },
+          select: { requestedById: true },
+        });
+
+        if (requisition) {
+          await NotificationService.createNotification(
+            {
+              userId: requisition.requestedById,
+              title: "Purchased goods received",
+              body: `${qtyReceived} unit(s) of your requested component have been received (PO ${poNumber}).`,
+              refType: "PURCHASE",
+              refId: purchaseRequest.id,
+            },
+            tx,
+          );
+        }
+      }
 
       return this.withComputedUrgency(updated);
     });

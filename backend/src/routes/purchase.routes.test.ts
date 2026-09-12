@@ -39,6 +39,7 @@ const testComponentCodes = [
   "TEST-PUR-COMP-RECEIVE-WRONGSTATUS",
   "TEST-PUR-COMP-RECEIVE-HAPPY",
   "TEST-PUR-COMP-RECEIVE-PARTIAL",
+  "TEST-PUR-COMP-RECEIVE-NOTIFY",
 ];
 
 const testEmails = [
@@ -69,6 +70,16 @@ async function cleanupTestData() {
   await prisma.component.deleteMany({
     where: { code: { in: testComponentCodes } },
   });
+  // Task 5.20's decide/receive notifications reference these users;
+  // Notification.userId has no cascade, so it must go before user.deleteMany.
+  await prisma.notification.deleteMany({
+    where: { user: { email: { in: testEmails } } },
+  });
+  // The RECEIVE describe block's notify test seeds a real Requisition
+  // (requestedById has no cascade either) that must go the same way.
+  await prisma.requisition.deleteMany({
+    where: { department: { code: { in: testDepartmentCodes } } },
+  });
   await prisma.user.deleteMany({ where: { email: { in: testEmails } } });
   await prisma.department.deleteMany({
     where: { code: { in: testDepartmentCodes } },
@@ -94,9 +105,13 @@ describe("Purchase Request API Integration Tests", () => {
   let receiveWrongStatusComponentId: string;
   let receiveHappyComponentId: string;
   let receivePartialComponentId: string;
+  let receiveNotifyComponentId: string;
 
   let labAsstUserId: string;
   let otherLabAsstUserId: string;
+  let centralUserId: string;
+  let deptStoreHeadUserId: string;
+  let officeAdminUserId: string;
 
   let labAsstToken: string;
   let otherLabAsstToken: string;
@@ -135,6 +150,7 @@ describe("Purchase Request API Integration Tests", () => {
       receiveWrongStatusComponent,
       receiveHappyComponent,
       receivePartialComponent,
+      receiveNotifyComponent,
     ] = await Promise.all(
       testComponentCodes.map((code, index) =>
         prisma.component.create({
@@ -165,6 +181,7 @@ describe("Purchase Request API Integration Tests", () => {
     receiveWrongStatusComponentId = receiveWrongStatusComponent.id;
     receiveHappyComponentId = receiveHappyComponent.id;
     receivePartialComponentId = receivePartialComponent.id;
+    receiveNotifyComponentId = receiveNotifyComponent.id;
 
     const hashedPassword = await bcryptjs.hash("test123", 10);
 
@@ -200,7 +217,7 @@ describe("Purchase Request API Integration Tests", () => {
       },
     });
 
-    await prisma.user.create({
+    const centralUser = await prisma.user.create({
       data: {
         email: "pur-central@test.com",
         passwordHash: hashedPassword,
@@ -209,8 +226,9 @@ describe("Purchase Request API Integration Tests", () => {
         departmentId: null,
       },
     });
+    centralUserId = centralUser.id;
 
-    await prisma.user.create({
+    const deptStoreHeadUser = await prisma.user.create({
       data: {
         email: "pur-deptstorehead@test.com",
         passwordHash: hashedPassword,
@@ -219,8 +237,9 @@ describe("Purchase Request API Integration Tests", () => {
         departmentId: deptA.id,
       },
     });
+    deptStoreHeadUserId = deptStoreHeadUser.id;
 
-    await prisma.user.create({
+    const officeAdminUser = await prisma.user.create({
       data: {
         email: "pur-officeadmin@test.com",
         passwordHash: hashedPassword,
@@ -229,6 +248,7 @@ describe("Purchase Request API Integration Tests", () => {
         departmentId: null,
       },
     });
+    officeAdminUserId = officeAdminUser.id;
 
     async function login(email: string): Promise<string> {
       const res = await request(app)
@@ -764,6 +784,13 @@ describe("Purchase Request API Integration Tests", () => {
       expect(rung1.body.data.steps[1].approverRole).toBe("DEPT_STORE_HEAD");
       expect(rung1.body.data.steps[1].decision).toBe("PENDING");
 
+      // Task 5.20: escalating to rung 2 notifies every DEPT_STORE_HEAD —
+      // the new step has no assigned approverId yet, so it's role-wide.
+      const rung2Notification = await prisma.notification.findFirst({
+        where: { userId: deptStoreHeadUserId, refType: "PURCHASE", refId: id },
+      });
+      expect(rung2Notification).not.toBeNull();
+
       const rung2 = await request(app)
         .post(`/api/purchase-requests/${id}/decide`)
         .set("Authorization", `Bearer ${deptStoreHeadToken}`)
@@ -778,6 +805,12 @@ describe("Purchase Request API Integration Tests", () => {
       expect(rung2.body.data.steps[2].approverRole).toBe("OFFICE_ADMIN");
       expect(rung2.body.data.steps[2].decision).toBe("PENDING");
 
+      // Task 5.20: escalating to rung 3 notifies every OFFICE_ADMIN.
+      const rung3Notification = await prisma.notification.findFirst({
+        where: { userId: officeAdminUserId, refType: "PURCHASE", refId: id },
+      });
+      expect(rung3Notification).not.toBeNull();
+
       const rung3 = await request(app)
         .post(`/api/purchase-requests/${id}/decide`)
         .set("Authorization", `Bearer ${officeAdminToken}`)
@@ -787,6 +820,18 @@ describe("Purchase Request API Integration Tests", () => {
       expect(rung3.body.data.status).toBe("APPROVED");
       expect(rung3.body.data.steps).toHaveLength(3);
       expect(rung3.body.data.steps[2].decision).toBe("APPROVED");
+
+      // Task 5.20: fully approved notifies every CENTRAL_STORE_OFFICER —
+      // the role that goes on to actually receive the goods (Task 5.15).
+      const finalNotification = await prisma.notification.findFirst({
+        where: {
+          userId: centralUserId,
+          refType: "PURCHASE",
+          refId: id,
+          title: "Purchase request fully approved",
+        },
+      });
+      expect(finalNotification).not.toBeNull();
     });
 
     it("rejects at rung 1 and sets status REJECTED without creating a rung-2 step", async () => {
@@ -810,6 +855,13 @@ describe("Purchase Request API Integration Tests", () => {
       expect(res.body.data.status).toBe("REJECTED");
       expect(res.body.data.steps).toHaveLength(1);
       expect(res.body.data.steps[0].decision).toBe("REJECTED");
+
+      // Task 5.20: rejection notifies whoever raised the request.
+      const notification = await prisma.notification.findFirst({
+        where: { userId: labAsstUserId, refType: "PURCHASE", refId: id },
+      });
+      expect(notification).not.toBeNull();
+      expect(notification?.title).toBe("Purchase request rejected");
     });
 
     it("runs the full 3-rung happy path end to end", async () => {
@@ -858,6 +910,7 @@ describe("Purchase Request API Integration Tests", () => {
 
   describe("RECEIVE - POST /api/purchase-requests/:id/receive - Task 5.15", () => {
     let officeDepartmentId: string;
+    let receiveNotifyRequisitionId: string;
 
     beforeAll(async () => {
       // Reuse whatever office department already exists (real seed data
@@ -882,16 +935,37 @@ describe("Purchase Request API Integration Tests", () => {
               },
             })
           ).id;
+
+      // Task 5.20's "goods received" notification only has someone to
+      // notify when the purchase request is linked to a requisition — a
+      // manually-raised one (every other RECEIVE test here) has none.
+      const deptA = await prisma.department.findFirstOrThrow({
+        where: { code: testDepartmentCodes[0] },
+      });
+
+      const receiveNotifyRequisition = await prisma.requisition.create({
+        data: {
+          type: "PERSONAL",
+          origin: "LAB_ASSISTANT",
+          requestedById: labAsstUserId,
+          departmentId: deptA.id,
+          neededFrom: new Date("2027-09-01T08:00:00.000Z"),
+          neededTo: new Date("2027-09-01T10:00:00.000Z"),
+          status: "DRAFT",
+        },
+      });
+      receiveNotifyRequisitionId = receiveNotifyRequisition.id;
     });
 
     async function createApprovedRequest(
       componentId: string,
       qtyRequested: number,
+      requisitionId?: string,
     ): Promise<string> {
       const created = await request(app)
         .post("/api/purchase-requests")
         .set("Authorization", `Bearer ${labAsstToken}`)
-        .send({ componentId, qtyRequested, reason: "Receive test" });
+        .send({ componentId, qtyRequested, reason: "Receive test", requisitionId });
       expect(created.status).toBe(201);
       const id = created.body.data.id;
 
@@ -991,6 +1065,27 @@ describe("Purchase Request API Integration Tests", () => {
         where: { componentId: receivePartialComponentId },
       });
       expect(stock?.onHand).toBe(8);
+    });
+
+    it("Task 5.20: notifies the original requisition's requester when goods are received", async () => {
+      const id = await createApprovedRequest(
+        receiveNotifyComponentId,
+        6,
+        receiveNotifyRequisitionId,
+      );
+
+      const res = await request(app)
+        .post(`/api/purchase-requests/${id}/receive`)
+        .set("Authorization", `Bearer ${centralToken}`)
+        .send({ poNumber: "PO-NOTIFY-1", qtyReceived: 6 });
+
+      expect(res.status).toBe(200);
+
+      const notification = await prisma.notification.findFirst({
+        where: { userId: labAsstUserId, refType: "PURCHASE", refId: id },
+      });
+      expect(notification).not.toBeNull();
+      expect(notification?.title).toBe("Purchased goods received");
     });
   });
 });

@@ -6,6 +6,7 @@ import {
   AvailabilityService,
   AvailabilityWindow,
 } from "./availability.service";
+import { NotificationService } from "./notification.service";
 import {
   CreateBorrowRequest,
   ListBorrowRequestsQuery,
@@ -315,6 +316,37 @@ export class BorrowService {
     });
   }
 
+  // ─────────────── notifications ───────────────
+
+  /**
+   * Task 5.20. BorrowRequest has no "requester" of its own — only
+   * lenderDeptId/borrowerDeptId — so "the requesting department's relevant
+   * user" means whoever raised the underlying Requisition this borrow
+   * exists to help fulfil: Requisition.requestedById. Looked up inside the
+   * same transaction (tx) as the status change that triggers it, so it
+   * commits or rolls back together with that change rather than as a
+   * separate write.
+   */
+  private static async notifyRequisitionRequester(
+    tx: Prisma.TransactionClient,
+    requisitionId: string,
+    content: { title: string; body: string; refType: string; refId: string },
+  ): Promise<void> {
+    const requisition = await tx.requisition.findUnique({
+      where: { id: requisitionId },
+      select: { requestedById: true },
+    });
+
+    if (!requisition) {
+      return;
+    }
+
+    await NotificationService.createNotification(
+      { userId: requisition.requestedById, ...content },
+      tx,
+    );
+  }
+
   // ─────────────── approve / reject ───────────────
 
   /**
@@ -427,6 +459,13 @@ export class BorrowService {
           data: { qty: approvedQty },
         });
       }
+
+      await this.notifyRequisitionRequester(tx, borrowRequest.requisitionId, {
+        title: "Borrow request approved",
+        body: `Your borrow request for ${approvedQty} unit(s) has been approved.`,
+        refType: "BORROW",
+        refId: borrowRequestId,
+      });
     });
 
     return this.getBorrowRequestById(borrowRequestId, actor);
@@ -495,6 +534,13 @@ export class BorrowService {
           });
         }
       }
+
+      await this.notifyRequisitionRequester(tx, borrowRequest.requisitionId, {
+        title: "Borrow request rejected",
+        body: `Your borrow request was rejected: ${reason}`,
+        refType: "BORROW",
+        refId: borrowRequestId,
+      });
     });
 
     return this.getBorrowRequestById(borrowRequestId, actor);
