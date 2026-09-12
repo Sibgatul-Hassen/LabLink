@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { getComponents } from "../api/component.api";
 import { getSessions } from "../api/session.api";
+import RequisitionWizard from "../components/RequisitionWizard";
 import {
   addRequisitionLine,
   createRequisition,
