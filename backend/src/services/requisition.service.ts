@@ -561,6 +561,11 @@ export class RequisitionService {
    * Records a return against an ISSUED requisition. Good units go back onto
    * stock.onHand; damaged, lost, and used-up units stay off the shelf but
    * are still logged as movements for the audit trail.
+   *
+   * Task 5.19: after a line's own mutations, checks whether the component's
+   * shared stock has fallen below its reorder point whenever that line
+   * confirmed a permanent loss (damagedQty/lostQty), auto-raising a
+   * purchase request if so.
    */
   static async returnRequisition(
     id: string,
@@ -705,6 +710,33 @@ export class RequisitionService {
               performedById: actor.id,
             },
           });
+        }
+
+        // Task 5.19. damagedQty/lostQty are NOT deducted from stock.onHand
+        // here — issueRequisition already took the line's full qtyNeeded
+        // off the shelf when it was handed out, so a unit that comes back
+        // damaged or lost was already gone from onHand and this method
+        // never adds it back (only goodQty's increment above touches
+        // onHand at all). What damagedQty+lostQty>0 does mean is that this
+        // line just confirmed some units are gone for good, which is
+        // exactly the moment worth checking whether the office's shared
+        // onHand for this component has drifted below its reorder point —
+        // so that's the trigger used here, per this component only (see
+        // checkReorderPoint's own comment for why not per department).
+        // Runs inside this same transaction, on the same `tx`, the same
+        // way tier 4's auto-raised purchase request already does in
+        // RequisitionService.resolveLine — createPurchaseRequest has no
+        // side effect beyond DB writes (no notification, no external
+        // call), so there's nothing here that needs to happen only after
+        // commit, and keeping it in-transaction means a failure here rolls
+        // back the whole return instead of leaving it half-applied.
+        if (item.damagedQty + item.lostQty > 0) {
+          await PurchaseService.checkReorderPoint(
+            item.componentId,
+            actor.id,
+            tx,
+            { requisitionId: id },
+          );
         }
       }
 

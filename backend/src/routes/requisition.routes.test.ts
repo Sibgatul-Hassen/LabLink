@@ -1229,6 +1229,244 @@ describe("Requisition CRUD API Integration Tests", () => {
       });
       expect(requisition?.status).toBe("ISSUED");
     });
+
+    it("Task 5.19: a return that drops stock below the reorder point auto-raises a purchase request", async () => {
+      await prisma.stock.create({
+        data: { componentId: componentOneId, onHand: 5, spareQty: 0, reorderPoint: 3 },
+      });
+
+      await prisma.requisition.update({
+        where: { id: requisitionId },
+        data: { status: "READY" },
+      });
+
+      const issueRes = await request(app)
+        .post(`/api/requisitions/${requisitionId}/issue`)
+        .set("Authorization", `Bearer ${centralToken}`);
+      expect(issueRes.status).toBe(200);
+
+      // onHand after issue: 5 - 5 = 0.
+      const res = await request(app)
+        .post(`/api/requisitions/${requisitionId}/return`)
+        .set("Authorization", `Bearer ${centralToken}`)
+        .send({
+          items: [
+            {
+              componentId: componentOneId,
+              goodQty: 1,
+              damagedQty: 4,
+              lostQty: 0,
+              usedUpQty: 0,
+            },
+          ],
+        });
+
+      expect(res.status).toBe(200);
+
+      // onHand after return: 0 + 1 (good) = 1, below reorderPoint of 3.
+      const stock = await prisma.stock.findUnique({
+        where: { componentId: componentOneId },
+      });
+      expect(stock?.onHand).toBe(1);
+
+      const purchaseRequest = await prisma.purchaseRequest.findFirst({
+        where: { componentId: componentOneId },
+        include: { steps: true },
+      });
+
+      expect(purchaseRequest).not.toBeNull();
+      expect(purchaseRequest?.status).toBe("PENDING");
+      expect(purchaseRequest?.urgency).toBe("NORMAL");
+      expect(purchaseRequest?.currentLevel).toBe(1);
+      // Requested enough to bring onHand back up to the reorder point: 3 - 1 = 2.
+      expect(purchaseRequest?.qtyNeeded).toBe(2);
+      expect(purchaseRequest?.steps).toHaveLength(1);
+      expect(purchaseRequest?.steps[0].level).toBe(1);
+      expect(purchaseRequest?.steps[0].approverRole).toBe(
+        "CENTRAL_STORE_OFFICER",
+      );
+    });
+
+    it("Task 5.19: a return that keeps stock at or above the reorder point does not raise a purchase request", async () => {
+      await prisma.stock.create({
+        data: { componentId: componentOneId, onHand: 20, spareQty: 0, reorderPoint: 3 },
+      });
+
+      await prisma.requisition.update({
+        where: { id: requisitionId },
+        data: { status: "READY" },
+      });
+
+      const issueRes = await request(app)
+        .post(`/api/requisitions/${requisitionId}/issue`)
+        .set("Authorization", `Bearer ${centralToken}`);
+      expect(issueRes.status).toBe(200);
+
+      // onHand after issue: 20 - 5 = 15; after +3 good returned: 18 >= 3.
+      const res = await request(app)
+        .post(`/api/requisitions/${requisitionId}/return`)
+        .set("Authorization", `Bearer ${centralToken}`)
+        .send({
+          items: [
+            {
+              componentId: componentOneId,
+              goodQty: 3,
+              damagedQty: 2,
+              lostQty: 0,
+              usedUpQty: 0,
+            },
+          ],
+        });
+
+      expect(res.status).toBe(200);
+
+      const purchaseRequest = await prisma.purchaseRequest.findFirst({
+        where: { componentId: componentOneId },
+      });
+      expect(purchaseRequest).toBeNull();
+    });
+
+    it("Task 5.19: aggregates into an already-open purchase request instead of duplicating", async () => {
+      await prisma.stock.create({
+        data: { componentId: componentOneId, onHand: 5, spareQty: 0, reorderPoint: 3 },
+      });
+
+      await prisma.requisition.update({
+        where: { id: requisitionId },
+        data: { status: "READY" },
+      });
+
+      const issueRes = await request(app)
+        .post(`/api/requisitions/${requisitionId}/issue`)
+        .set("Authorization", `Bearer ${centralToken}`);
+      expect(issueRes.status).toBe(200);
+
+      // Seeded directly, bypassing the API — exactly the "another PENDING
+      // request already exists for this component" scenario Task 5.10's
+      // aggregatePurchaseRequests was built for.
+      const existing = await prisma.purchaseRequest.create({
+        data: {
+          componentId: componentOneId,
+          qtyNeeded: 4,
+          raisedById: studentId,
+          status: "PENDING",
+          currentLevel: 1,
+          steps: {
+            create: [
+              {
+                level: 1,
+                approverRole: "CENTRAL_STORE_OFFICER",
+                decision: "PENDING",
+                dueAt: new Date(Date.now() + 1000 * 60 * 60),
+              },
+            ],
+          },
+        },
+      });
+
+      // onHand after issue: 0; after +1 good returned: 1, below reorderPoint 3.
+      const res = await request(app)
+        .post(`/api/requisitions/${requisitionId}/return`)
+        .set("Authorization", `Bearer ${centralToken}`)
+        .send({
+          items: [
+            {
+              componentId: componentOneId,
+              goodQty: 1,
+              damagedQty: 4,
+              lostQty: 0,
+              usedUpQty: 0,
+            },
+          ],
+        });
+
+      expect(res.status).toBe(200);
+
+      // Task 5.10's aggregation soft-cancels a duplicate rather than
+      // deleting it (audit trail), so both rows still exist afterward —
+      // the pre-existing (oldest) one stays PENDING and absorbs the
+      // reorder trigger's shortfall (3 - 1 = 2), while the second,
+      // would-be-duplicate request that checkReorderPoint tried to raise
+      // is folded into it and left CANCELLED, not a separate open request.
+      const pendingRequests = await prisma.purchaseRequest.findMany({
+        where: { componentId: componentOneId, status: "PENDING" },
+      });
+      const cancelledRequests = await prisma.purchaseRequest.findMany({
+        where: { componentId: componentOneId, status: "CANCELLED" },
+      });
+
+      expect(pendingRequests).toHaveLength(1);
+      expect(pendingRequests[0].id).toBe(existing.id);
+      expect(pendingRequests[0].qtyNeeded).toBe(4 + 2);
+      expect(cancelledRequests).toHaveLength(1);
+    });
+
+    it("Task 5.19: in a multi-line return, only the line crossing its own reorder point raises a request", async () => {
+      const created = await create(
+        {
+          type: "PERSONAL",
+          ...OWN_WINDOW,
+          lines: [
+            { componentId: componentOneId, qtyNeeded: 5 },
+            { componentId: componentTwoId, qtyNeeded: 5 },
+          ],
+        },
+        studentToken,
+      );
+      const multiRequisitionId = created.body.data.id;
+
+      // componentOne ends up below its reorder point; componentTwo does not.
+      await prisma.stock.create({
+        data: { componentId: componentOneId, onHand: 5, spareQty: 0, reorderPoint: 3 },
+      });
+      await prisma.stock.create({
+        data: { componentId: componentTwoId, onHand: 20, spareQty: 0, reorderPoint: 3 },
+      });
+
+      await prisma.requisition.update({
+        where: { id: multiRequisitionId },
+        data: { status: "READY" },
+      });
+
+      const issueRes = await request(app)
+        .post(`/api/requisitions/${multiRequisitionId}/issue`)
+        .set("Authorization", `Bearer ${centralToken}`);
+      expect(issueRes.status).toBe(200);
+
+      const res = await request(app)
+        .post(`/api/requisitions/${multiRequisitionId}/return`)
+        .set("Authorization", `Bearer ${centralToken}`)
+        .send({
+          items: [
+            {
+              componentId: componentOneId,
+              goodQty: 1,
+              damagedQty: 4,
+              lostQty: 0,
+              usedUpQty: 0,
+            },
+            {
+              componentId: componentTwoId,
+              goodQty: 3,
+              damagedQty: 2,
+              lostQty: 0,
+              usedUpQty: 0,
+            },
+          ],
+        });
+
+      expect(res.status).toBe(200);
+
+      const purchaseRequestOne = await prisma.purchaseRequest.findFirst({
+        where: { componentId: componentOneId },
+      });
+      const purchaseRequestTwo = await prisma.purchaseRequest.findFirst({
+        where: { componentId: componentTwoId },
+      });
+
+      expect(purchaseRequestOne).not.toBeNull();
+      expect(purchaseRequestTwo).toBeNull();
+    });
   });
 
   describe("Submit and resolve", () => {
