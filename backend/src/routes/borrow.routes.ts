@@ -26,6 +26,7 @@ const FORBIDDEN_MESSAGES = [
   "You can only raise borrow requests for your own department",
   "Only the lending department can approve this request",
   "Only the lending department can reject this request",
+  "Only the lending department can hand over this request",
 ];
 
 const BAD_REQUEST_MESSAGES = [
@@ -34,6 +35,8 @@ const BAD_REQUEST_MESSAGES = [
   "Only a requested borrow can be rejected",
   "Approved quantity must be at least 1 and no more than the requested quantity",
   "A reason is required to reject a borrow request",
+  "Only an approved borrow can be handed over",
+  "This borrow request has no approved quantity to hand over",
 ];
 
 function handleBorrowError(error: unknown, res: Response): void {
@@ -283,6 +286,34 @@ router.post(
       const borrowRequest = await BorrowService.rejectBorrow(
         req.params.id,
         validated.reason,
+        actor,
+      );
+
+      res.status(200).json({ data: borrowRequest });
+    } catch (error) {
+      handleBorrowError(error, res);
+    }
+  },
+);
+
+// Task 5.6. No request body — the approved qty already lives on the
+// BorrowLine from approveBorrow. Transactional guarantee lives in
+// BorrowService.handOverBorrow itself, same as approve/reject.
+router.post(
+  "/borrow-requests/:id/hand-over",
+  requireAuth,
+  requireRole("DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const actor = actorFrom(req);
+
+      if (!actor) {
+        res.status(401).json({ error: "Not authenticated" });
+        return;
+      }
+
+      const borrowRequest = await BorrowService.handOverBorrow(
+        req.params.id,
         actor,
       );
 

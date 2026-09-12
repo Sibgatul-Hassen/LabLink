@@ -53,6 +53,10 @@ async function cleanupTestData() {
   await prisma.departmentQuota.deleteMany({
     where: { component: { code: { in: testComponentCodes } } },
   });
+  // Task 5.6's hand-over tests create real StockMovement rows.
+  await prisma.stockMovement.deleteMany({
+    where: { component: { code: { in: testComponentCodes } } },
+  });
   await prisma.stock.deleteMany({
     where: { component: { code: { in: testComponentCodes } } },
   });
@@ -735,6 +739,141 @@ describe("Borrow Request API Integration Tests", () => {
         .post(`/api/borrow-requests/${br.id}/reject`)
         .set("Authorization", `Bearer ${deptStoreHeadToken}`)
         .send({ reason: "I changed my mind" });
+
+      expect(res.status).toBe(403);
+    });
+  });
+
+  describe("HAND OVER - POST /api/borrow-requests/:id/hand-over", () => {
+    // Same unique-constraint concern as the APPROVE / REJECT block above.
+    beforeEach(async () => {
+      await prisma.requisitionLine.deleteMany({
+        where: { requisitionId: requisitionBorrowerId, componentId },
+      });
+    });
+
+    async function createBorrowRequest(status: "REQUESTED" | "APPROVED", qty = 5) {
+      return prisma.borrowRequest.create({
+        data: {
+          requisitionId: requisitionBorrowerId,
+          lenderDeptId: deptLenderId,
+          borrowerDeptId: deptBorrowerId,
+          returnBy: new Date("2027-07-05T00:00:00.000Z"),
+          status,
+          lines: {
+            create: [
+              {
+                componentId,
+                qtyRequested: qty,
+                qtyApproved: status === "APPROVED" ? qty : 0,
+              },
+            ],
+          },
+        },
+      });
+    }
+
+    // Simulates what tier 3's resolver would have created for this borrow,
+    // so hand-over has a real Allocation to mark ISSUED.
+    async function createLinkedAllocation(qty: number) {
+      const requisitionLine = await prisma.requisitionLine.create({
+        data: { requisitionId: requisitionBorrowerId, componentId, qtyNeeded: qty },
+      });
+
+      const allocation = await prisma.allocation.create({
+        data: {
+          requisitionLineId: requisitionLine.id,
+          sourceDeptId: deptLenderId,
+          qty,
+          source: "BORROW",
+          status: "HELD",
+        },
+      });
+
+      return allocation.id;
+    }
+
+    it("rejects unauthenticated requests", async () => {
+      const br = await createBorrowRequest("APPROVED");
+
+      const res = await request(app).post(
+        `/api/borrow-requests/${br.id}/hand-over`,
+      );
+
+      expect(res.status).toBe(401);
+    });
+
+    it("is 403 for a disallowed role", async () => {
+      const br = await createBorrowRequest("APPROVED");
+
+      const res = await request(app)
+        .post(`/api/borrow-requests/${br.id}/hand-over`)
+        .set("Authorization", `Bearer ${studentToken}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it("is 400 when handing over a request that is not approved", async () => {
+      const br = await createBorrowRequest("REQUESTED");
+
+      const res = await request(app)
+        .post(`/api/borrow-requests/${br.id}/hand-over`)
+        .set("Authorization", `Bearer ${lenderHeadToken}`);
+
+      expect(res.status).toBe(400);
+    });
+
+    it("hands over: paired StockMovements, HANDED_OVER, allocation ISSUED", async () => {
+      // A known baseline so the "no net change" assertion below is meaningful.
+      await prisma.stock.upsert({
+        where: { componentId },
+        update: { onHand: 20 },
+        create: { componentId, onHand: 20, spareQty: 0, reorderPoint: 0 },
+      });
+
+      const br = await createBorrowRequest("APPROVED", 4);
+      const allocationId = await createLinkedAllocation(4);
+
+      const res = await request(app)
+        .post(`/api/borrow-requests/${br.id}/hand-over`)
+        .set("Authorization", `Bearer ${lenderHeadToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.status).toBe("HANDED_OVER");
+
+      const movements = await prisma.stockMovement.findMany({
+        where: { refType: "BORROW", refId: br.id },
+        orderBy: { qty: "asc" },
+      });
+
+      expect(movements).toHaveLength(2);
+      expect(movements[0].qty).toBe(-4);
+      expect(movements[0].fromDeptId).toBe(deptLenderId);
+      expect(movements[0].toDeptId).toBe(deptBorrowerId);
+      expect(movements[1].qty).toBe(4);
+      expect(movements[1].fromDeptId).toBe(deptLenderId);
+      expect(movements[1].toDeptId).toBe(deptBorrowerId);
+
+      const allocation = await prisma.allocation.findUnique({
+        where: { id: allocationId },
+      });
+      expect(allocation?.status).toBe("ISSUED");
+
+      // Stock has no per-department column — lender and borrower share one
+      // onHand pool, so "deducted from lender, added to borrower" nets to no
+      // change here (see BorrowService.handOverBorrow's own doc comment for
+      // why: issueRequisition already deducts the full qty, borrowed portion
+      // included, when the borrower's own requisition is later issued).
+      const stock = await prisma.stock.findUnique({ where: { componentId } });
+      expect(stock?.onHand).toBe(20);
+    });
+
+    it("stops the borrower from handing over its own request", async () => {
+      const br = await createBorrowRequest("APPROVED");
+
+      const res = await request(app)
+        .post(`/api/borrow-requests/${br.id}/hand-over`)
+        .set("Authorization", `Bearer ${deptStoreHeadToken}`);
 
       expect(res.status).toBe(403);
     });
