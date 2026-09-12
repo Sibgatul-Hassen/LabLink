@@ -22,6 +22,7 @@ const testComponentCodes = [
   "TEST-REQ-CONCURRENT",
   "TEST-REQ-TIER2",
   "TEST-REQ-TIER3",
+  "TEST-REQ-TIER4",
 ];
 const testEmails = [
   "req-student@test.com",
@@ -60,6 +61,17 @@ async function clearRequisitions() {
   await prisma.borrowRequest.deleteMany({
     where: {
       requisition: { department: { code: { in: testDepartmentCodes } } },
+    },
+  });
+  // Tier 4 can create real PurchaseRequest rows too; PurchaseRequest.
+  // requisition has no onDelete: Cascade either, so same ordering concern.
+  // ApprovalStep cascades on PurchaseRequest deletion, so no separate delete.
+  await prisma.purchaseRequest.deleteMany({
+    where: {
+      OR: [
+        { requisition: { department: { code: { in: testDepartmentCodes } } } },
+        { component: { code: { in: testComponentCodes } } },
+      ],
     },
   });
   await prisma.allocation.deleteMany({
@@ -995,6 +1007,7 @@ describe("Requisition CRUD API Integration Tests", () => {
     let concurrentComponentId: string;
     let tier2ComponentId: string;
     let tier3ComponentId: string;
+    let tier4ComponentId: string;
     let officeDepartmentId: string;
 
     beforeAll(async () => {
@@ -1095,6 +1108,20 @@ describe("Requisition CRUD API Integration Tests", () => {
           qty: 8,
         },
       });
+
+      // Tier 4 fixture: deliberately no quota anywhere (own, office, or any
+      // other department) and no stock — nothing in tiers 1-3 can cover any
+      // amount of this component, so the whole qtyNeeded must fall through
+      // to a purchase request.
+      const tier4Component = await prisma.component.create({
+        data: {
+          code: "TEST-REQ-TIER4",
+          name: "Requisition Test Tier 4 Component",
+          category: "Test",
+          sizeClass: "SMALL",
+        },
+      });
+      tier4ComponentId = tier4Component.id;
     });
 
     beforeEach(clearRequisitions);
@@ -1307,6 +1334,51 @@ describe("Requisition CRUD API Integration Tests", () => {
 
       expect(borrowRequest).not.toBeNull();
       expect(borrowRequest?.lines[0].qtyRequested).toBe(8);
+    });
+
+    it("auto-raises a purchase request when no quota, office, or lender can cover it", async () => {
+      const created = await create(
+        {
+          type: "PERSONAL",
+          ...OWN_WINDOW,
+          lines: [{ componentId: tier4ComponentId, qtyNeeded: 6 }],
+        },
+        studentToken,
+      );
+
+      const res = await request(app)
+        .post(`/api/requisitions/${created.body.data.id}/submit`)
+        .set("Authorization", `Bearer ${studentToken}`);
+
+      expect(res.status).toBe(200);
+      // Tier 4 does not resolve the shortfall — it raises a purchase request
+      // for it — so the requisition stays SUBMITTED, not READY, and qtyShort
+      // still reports the full amount.
+      expect(res.body.data.status).toBe("SUBMITTED");
+      expect(res.body.data.lines[0].qtyOwnQuota).toBe(0);
+      expect(res.body.data.lines[0].qtySpare).toBe(0);
+      expect(res.body.data.lines[0].qtyBorrowed).toBe(0);
+      expect(res.body.data.lines[0].qtyShort).toBe(6);
+
+      const purchaseRequest = await prisma.purchaseRequest.findFirst({
+        where: {
+          requisitionId: created.body.data.id,
+          componentId: tier4ComponentId,
+        },
+        include: { steps: true },
+      });
+
+      expect(purchaseRequest).not.toBeNull();
+      expect(purchaseRequest?.qtyNeeded).toBe(6);
+      expect(purchaseRequest?.status).toBe("PENDING");
+      expect(purchaseRequest?.currentLevel).toBe(1);
+      expect(purchaseRequest?.raisedById).toBe(studentId);
+      expect(purchaseRequest?.steps).toHaveLength(1);
+      expect(purchaseRequest?.steps[0].level).toBe(1);
+      expect(purchaseRequest?.steps[0].decision).toBe("PENDING");
+      expect(purchaseRequest?.steps[0].approverRole).toBe(
+        "CENTRAL_STORE_OFFICER",
+      );
     });
 
     it("returns a per-line resolution breakdown", async () => {

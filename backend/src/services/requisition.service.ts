@@ -13,6 +13,7 @@ import {
   AvailabilityWindow,
 } from "./availability.service";
 import { BorrowService } from "./borrow.service";
+import { PurchaseService } from "./purchase.service";
 import {
   CreateRequisitionLineRequest,
   CreateRequisitionRequest,
@@ -46,9 +47,10 @@ export type ResolutionBreakdownLine = {
   qtyFromOwn: number;
   qtyFromOffice: number;
   qtyFromBorrow: number;
-  // RequisitionLine has no "to purchase" column — tier 4 (purchasing) isn't
-  // implemented yet, so anything still short is, for now, what would need to
-  // be purchased. The two numbers are intentionally identical today.
+  // RequisitionLine has no "to purchase" column, even now that tier 4 exists
+  // (task 5.9) — qtyShort already means exactly this ("what tiers 1-3 could
+  // not source"), and tier 4 acts on that same number rather than needing a
+  // second one. The two fields below are intentionally identical.
   qtyToPurchase: number;
   qtyShort: number;
 };
@@ -816,9 +818,14 @@ export class RequisitionService {
 
   /**
    * Tier 1 (own quota), tier 2 (the office department's quota, standing in
-   * for the shared spare pool), then tier 3 (borrowing from other academic
-   * departments) for a single line. Returns the qty still short after all
-   * three tiers. Tier 4 (purchase) is later work.
+   * for the shared spare pool), tier 3 (borrowing from other academic
+   * departments), then tier 4 (auto-raising a purchase request for whatever
+   * is still short) for a single line. Tier 4 does not reduce the shortfall
+   * the way tiers 1-3 do — a pending purchase is not units in hand — so the
+   * qty this returns (and stores as qtyShort) stays exactly what tier 3 left
+   * it at. That is by design: the caller uses this to decide READY vs.
+   * SUBMITTED, and a line still waiting on a purchase to be approved is not
+   * ready.
    */
   private static async resolveLine(
     tx: Prisma.TransactionClient,
@@ -827,6 +834,7 @@ export class RequisitionService {
     window: AvailabilityWindow,
     officeDept: { id: string } | null,
     line: RequisitionLine,
+    raisedById: string,
   ): Promise<number> {
     let remaining = line.qtyNeeded;
     let qtyOwnQuota = 0;
@@ -946,6 +954,29 @@ export class RequisitionService {
       }
     }
 
+    // Tier 4 — whatever tiers 1-3 could not source becomes a purchase
+    // request, linked back to this requisition so its approval history is
+    // traceable. Deliberately does not touch `remaining`: a pending
+    // purchase is not stock in hand, so the shortfall this line reports
+    // (qtyShort) must stay accurate, and the requisition must stay
+    // SUBMITTED rather than READY until that purchase is actually fulfilled
+    // — a later stage's concern, not this resolver's.
+    if (remaining > 0) {
+      await PurchaseService.createPurchaseRequest(
+        {
+          componentId: line.componentId,
+          qtyRequested: remaining,
+          reason:
+            `Auto-raised by the resolver: requisition ${requisitionId} could ` +
+            `not source ${remaining} unit(s) of this component from its own ` +
+            "quota, the office, or another department.",
+          requisitionId,
+        },
+        raisedById,
+        tx,
+      );
+    }
+
     await tx.requisitionLine.update({
       where: { id: line.id },
       data: { qtyOwnQuota, qtySpare, qtyBorrowed, qtyShort: remaining },
@@ -961,7 +992,8 @@ export class RequisitionService {
    * or another department's lendable stock — will see Postgres abort one of
    * them (P2034) rather than let both believe they got the stock, because
    * every tier's availability reads go through the same `tx` as the
-   * allocations (and, for tier 3, BorrowRequests) they lead to.
+   * allocations (and, for tier 3, BorrowRequests; for tier 4,
+   * PurchaseRequests) they lead to.
    */
   static async submitRequisition(
     id: string,
@@ -1009,6 +1041,7 @@ export class RequisitionService {
               window,
               officeDept,
               line,
+              actor.id,
             );
 
             if (remaining > 0) {
