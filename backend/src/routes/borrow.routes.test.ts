@@ -63,6 +63,11 @@ async function cleanupTestData() {
   await prisma.component.deleteMany({
     where: { code: { in: testComponentCodes } },
   });
+  // Task 5.20's approve/reject notifications reference these users;
+  // Notification.userId has no cascade, so it must go before user.deleteMany.
+  await prisma.notification.deleteMany({
+    where: { user: { email: { in: testEmails } } },
+  });
   await prisma.user.deleteMany({ where: { email: { in: testEmails } } });
   await prisma.department.deleteMany({
     where: { code: { in: testDepartmentCodes } },
@@ -85,6 +90,7 @@ describe("Borrow Request API Integration Tests", () => {
 
   let brBorrowerLenderId: string;
   let brOtherLenderId: string;
+  let deptStoreHeadUserId: string;
 
   beforeAll(async () => {
     await cleanupTestData();
@@ -125,6 +131,7 @@ describe("Borrow Request API Integration Tests", () => {
         departmentId: deptBorrowerId,
       },
     });
+    deptStoreHeadUserId = deptStoreHeadUser.id;
 
     await prisma.user.create({
       data: {
@@ -719,6 +726,54 @@ describe("Borrow Request API Integration Tests", () => {
         where: { id: allocationId },
       });
       expect(allocation?.status).toBe("RELEASED");
+    });
+
+    it("Task 5.20: notifies the requisition's requester when the borrow is approved", async () => {
+      const br = await createFreshBorrowRequest(5);
+
+      const res = await request(app)
+        .post(`/api/borrow-requests/${br.id}/approve`)
+        .set("Authorization", `Bearer ${lenderHeadToken}`)
+        .send({ approvedQty: 5 });
+
+      expect(res.status).toBe(200);
+
+      const notification = await prisma.notification.findFirst({
+        where: {
+          userId: deptStoreHeadUserId,
+          refType: "BORROW",
+          refId: br.id,
+        },
+      });
+
+      expect(notification).not.toBeNull();
+      expect(notification?.title).toBe("Borrow request approved");
+      expect(notification?.isRead).toBe(false);
+    });
+
+    it("Task 5.20: notifies the requisition's requester when the borrow is rejected, with the reason", async () => {
+      const br = await createFreshBorrowRequest(5);
+
+      const res = await request(app)
+        .post(`/api/borrow-requests/${br.id}/reject`)
+        .set("Authorization", `Bearer ${lenderHeadToken}`)
+        .send({ reason: "No spare stock available after all" });
+
+      expect(res.status).toBe(200);
+
+      const notification = await prisma.notification.findFirst({
+        where: {
+          userId: deptStoreHeadUserId,
+          refType: "BORROW",
+          refId: br.id,
+        },
+      });
+
+      expect(notification).not.toBeNull();
+      expect(notification?.title).toBe("Borrow request rejected");
+      expect(notification?.body).toContain(
+        "No spare stock available after all",
+      );
     });
 
     it("stops the borrower from approving its own request", async () => {
