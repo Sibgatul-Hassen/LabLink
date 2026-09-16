@@ -122,66 +122,162 @@ function ResolutionBreakdownPanel({
   }
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-      <table className="min-w-full divide-y divide-slate-200">
-        <thead className="bg-slate-50">
-          <tr>
-            <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Component
-            </th>
-            <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Needed
-            </th>
-            <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Own Quota
-            </th>
-            <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Office
-            </th>
-            <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Borrowed
-            </th>
-            <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Short
-            </th>
-          </tr>
-        </thead>
+    <div className="space-y-3">
+      {/* Tier legend */}
+      <div className="flex flex-wrap gap-3 text-xs">
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-2.5 w-2.5 rounded-full bg-green-500" />
+          <span className="text-slate-600">Tier 1 — Own Quota</span>
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-2.5 w-2.5 rounded-full bg-blue-500" />
+          <span className="text-slate-600">Tier 2 — Office</span>
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-2.5 w-2.5 rounded-full bg-purple-500" />
+          <span className="text-slate-600">Tier 3 — Borrowed</span>
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-2.5 w-2.5 rounded-full bg-amber-400" />
+          <span className="text-slate-600">Short</span>
+        </span>
+      </div>
 
-        <tbody className="divide-y divide-slate-100">
-          {data.lines.map((line) => (
-            <tr key={line.lineId}>
-              <td className="px-4 py-2 text-sm text-slate-700">
-                <span className="font-medium text-slate-900">
-                  {line.componentCode}
-                </span>{" "}
-                — {line.componentName}
-              </td>
-              <td className="px-4 py-2 text-right text-sm text-slate-700">
-                {line.qtyNeeded}
-              </td>
-              <td className="px-4 py-2 text-right text-sm text-slate-700">
-                {line.qtyFromOwn}
-              </td>
-              <td className="px-4 py-2 text-right text-sm text-slate-700">
-                {line.qtyFromOffice}
-              </td>
-              <td className="px-4 py-2 text-right text-sm text-slate-700">
-                {line.qtyFromBorrow}
-              </td>
-              <td
-                className={`px-4 py-2 text-right text-sm font-semibold ${
-                  line.qtyShort > 0 ? "text-amber-700" : "text-slate-700"
-                }`}
-              >
-                {line.qtyShort}
-              </td>
+      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+        <table className="min-w-full divide-y divide-slate-200">
+          <thead className="bg-slate-50">
+            <tr>
+              <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Component
+              </th>
+              <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Needed
+              </th>
+              <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-green-600">
+                Own Quota
+              </th>
+              <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-blue-600">
+                Office
+              </th>
+              <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-purple-600">
+                Borrowed
+              </th>
+              <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-amber-600">
+                Short
+              </th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+
+          <tbody className="divide-y divide-slate-100">
+            {data.lines.map((line) => {
+              const total = line.qtyNeeded;
+              const pctOwn = total > 0 ? (line.qtyFromOwn / total) * 100 : 0;
+              const pctOffice =
+                total > 0 ? (line.qtyFromOffice / total) * 100 : 0;
+              const pctBorrow =
+                total > 0 ? (line.qtyFromBorrow / total) * 100 : 0;
+              const pctShort =
+                total > 0 ? (line.qtyShort / total) * 100 : 0;
+              const fullyFilled = line.qtyShort === 0;
+
+              return (
+                <tr
+                  key={line.lineId}
+                  className={fullyFilled ? "" : "bg-amber-50/40"}
+                >
+                  <td className="px-4 py-3">
+                    <p className="font-medium text-slate-900">
+                      {line.componentCode}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {line.componentName}
+                    </p>
+                    {/* stacked colour bar */}
+                    <div className="mt-1.5 flex h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                      {pctOwn > 0 && (
+                        <div
+                          className="h-full bg-green-500"
+                          style={{ width: `${pctOwn}%` }}
+                        />
+                      )}
+                      {pctOffice > 0 && (
+                        <div
+                          className="h-full bg-blue-500"
+                          style={{ width: `${pctOffice}%` }}
+                        />
+                      )}
+                      {pctBorrow > 0 && (
+                        <div
+                          className="h-full bg-purple-500"
+                          style={{ width: `${pctBorrow}%` }}
+                        />
+                      )}
+                      {pctShort > 0 && (
+                        <div
+                          className="h-full bg-amber-400"
+                          style={{ width: `${pctShort}%` }}
+                        />
+                      )}
+                    </div>
+                  </td>
+
+                  <td className="px-4 py-3 text-right text-sm font-medium text-slate-700">
+                    {line.qtyNeeded}
+                  </td>
+
+                  {/* Tier 1 — green */}
+                  <td className="px-4 py-3 text-right text-sm">
+                    {line.qtyFromOwn > 0 ? (
+                      <span className="font-semibold text-green-700">
+                        {line.qtyFromOwn}
+                      </span>
+                    ) : (
+                      <span className="text-slate-300">—</span>
+                    )}
+                  </td>
+
+                  {/* Tier 2 — blue */}
+                  <td className="px-4 py-3 text-right text-sm">
+                    {line.qtyFromOffice > 0 ? (
+                      <span className="font-semibold text-blue-700">
+                        {line.qtyFromOffice}
+                      </span>
+                    ) : (
+                      <span className="text-slate-300">—</span>
+                    )}
+                  </td>
+
+                  {/* Tier 3 — purple */}
+                  <td className="px-4 py-3 text-right text-sm">
+                    {line.qtyFromBorrow > 0 ? (
+                      <span className="font-semibold text-purple-700">
+                        {line.qtyFromBorrow}
+                      </span>
+                    ) : (
+                      <span className="text-slate-300">—</span>
+                    )}
+                  </td>
+
+                  {/* Short — amber */}
+                  <td className="px-4 py-3 text-right text-sm">
+                    {line.qtyShort > 0 ? (
+                      <span className="font-semibold text-amber-700">
+                        {line.qtyShort}
+                      </span>
+                    ) : (
+                      <span className="font-semibold text-green-600">✓</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
+
 
 export default function Requisitions() {
   const queryClient = useQueryClient();
