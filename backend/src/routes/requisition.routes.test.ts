@@ -967,6 +967,79 @@ describe("Requisition CRUD API Integration Tests", () => {
       expect(res.status).toBe(400);
     });
 
+    it("rejects unauthenticated return-preview requests", async () => {
+      const res = await request(app).get(
+        `/api/requisitions/${requisitionId}/return-preview`,
+      );
+
+      expect(res.status).toBe(401);
+    });
+
+    it("stops a student previewing a requisition's return", async () => {
+      const res = await request(app)
+        .get(`/api/requisitions/${requisitionId}/return-preview`)
+        .set("Authorization", `Bearer ${studentToken}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it("returns 404 for an unknown requisition on return-preview", async () => {
+      const res = await request(app)
+        .get("/api/requisitions/nonexistent/return-preview")
+        .set("Authorization", `Bearer ${centralToken}`);
+
+      expect(res.status).toBe(404);
+    });
+
+    it("previews an issued requisition's returnable components", async () => {
+      await prisma.stock.create({
+        data: { componentId: componentOneId, onHand: 10, spareQty: 0 },
+      });
+
+      await prisma.requisition.update({
+        where: { id: requisitionId },
+        data: { status: "READY" },
+      });
+
+      const issueRes = await request(app)
+        .post(`/api/requisitions/${requisitionId}/issue`)
+        .set("Authorization", `Bearer ${centralToken}`);
+      expect(issueRes.status).toBe(200);
+
+      const res = await request(app)
+        .get(`/api/requisitions/${requisitionId}/return-preview`)
+        .set("Authorization", `Bearer ${centralToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.requisitionId).toBe(requisitionId);
+      expect(res.body.data.status).toBe("ISSUED");
+      expect(res.body.data.lines).toHaveLength(1);
+
+      const line = res.body.data.lines[0];
+      expect(line.componentId).toBe(componentOneId);
+      expect(line.componentCode).toBe(testComponentCodes[0]);
+      expect(line.qtyIssued).toBe(5);
+    });
+
+    it("omits lines that were never issued from the return preview", async () => {
+      const created = await create(
+        {
+          type: "PERSONAL",
+          ...OWN_WINDOW,
+          lines: [{ componentId: componentOneId, qtyNeeded: 5 }],
+        },
+        studentToken,
+      );
+      const otherId = created.body.data.id;
+
+      const res = await request(app)
+        .get(`/api/requisitions/${otherId}/return-preview`)
+        .set("Authorization", `Bearer ${centralToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.lines).toHaveLength(0);
+    });
+
     it("refuses to issue when stock is insufficient", async () => {
       await prisma.stock.create({
         data: { componentId: componentOneId, onHand: 1, spareQty: 0 },

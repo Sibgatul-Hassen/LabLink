@@ -837,3 +837,19 @@ export interface IssuePreview {
   status: RequisitionStatus;
   lines: IssuePreviewLine[];
 }
+
+// ─────────────── return preview (task 6.3) ───────────────
+
+export interface ReturnPreviewLine {
+  lineId: string;
+  componentId: string;
+  componentCode: string;
+  componentName: string;
+  qtyIssued: number;
+}
+
+export interface ReturnPreview {
+  requisitionId: string;
+  status: RequisitionStatus;
+  lines: ReturnPreviewLine[];
+}
