@@ -8,6 +8,7 @@ import type {
   RequisitionStatus,
   RequisitionType,
   ResolutionBreakdown,
+  ReturnPreview,
   ReturnRequisitionRequest,
   UpdateRequisitionRequest,
 } from "../types";
@@ -22,6 +23,10 @@ interface ResolutionBreakdownResponse {
 
 interface IssuePreviewResponse {
   data: IssuePreview;
+}
+
+interface ReturnPreviewResponse {
+  data: ReturnPreview;
 }
 
 interface GetRequisitionsParams {
@@ -163,6 +168,14 @@ export async function getIssuePreview(id: string): Promise<IssuePreview> {
 export async function issueRequisition(id: string): Promise<Requisition> {
   const response = await apiClient.post<RequisitionResponse>(
     `/api/requisitions/${id}/issue`,
+  );
+
+  return response.data.data;
+}
+
+export async function getReturnPreview(id: string): Promise<ReturnPreview> {
+  const response = await apiClient.get<ReturnPreviewResponse>(
+    `/api/requisitions/${id}/return-preview`,
   );
 
   return response.data.data;

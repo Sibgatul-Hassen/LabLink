@@ -15,6 +15,7 @@ import {
   getIssuePreview,
   getRequisitionResolution,
   getRequisitions,
+  getReturnPreview,
   issueRequisition,
   removeRequisitionLine,
   returnRequisition,
@@ -92,11 +93,34 @@ function formatMoment(value: string): string {
   return `${date.toISOString().slice(0, 10)} ${date.toISOString().slice(11, 16)}`;
 }
 
+/** Task 6.4. A small rounded pill for one resolution tier, shown only when it
+ *  contributed a nonzero quantity to the line. */
+function TierBadge({
+  label,
+  qty,
+  className,
+}: {
+  label: string;
+  qty: number;
+  className: string;
+}) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${className}`}
+    >
+      {label}: {qty}
+    </span>
+  );
+}
+
 /**
- * Task 4.3. Only meaningful once the resolver has actually run — DRAFT has
- * nothing to break down yet, and past READY the lines' own qtyIssued/return
- * fields tell the more relevant story — so this is only rendered for
- * SUBMITTED and READY requisitions, fetching lazily on first expand.
+ * Task 4.3, polished in task 6.4. Only meaningful once the resolver has
+ * actually run — DRAFT has nothing to break down yet, and past READY the
+ * lines' own qtyIssued/return fields tell the more relevant story — so this
+ * is only rendered for SUBMITTED and READY requisitions, fetching lazily on
+ * first expand. Each line gets a stacked progress bar (own/office/borrowed/
+ * short, proportional to qtyNeeded) and colour-coded badges, with a totals
+ * summary across every line at the bottom.
  */
 function ResolutionBreakdownPanel({
   requisitionId,
@@ -122,64 +146,149 @@ function ResolutionBreakdownPanel({
     return <p className="text-sm text-slate-500">No lines to resolve.</p>;
   }
 
-  return (
-    <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-      <table className="min-w-full divide-y divide-slate-200">
-        <thead className="bg-slate-50">
-          <tr>
-            <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Component
-            </th>
-            <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Needed
-            </th>
-            <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Own Quota
-            </th>
-            <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Office
-            </th>
-            <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Borrowed
-            </th>
-            <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Short
-            </th>
-          </tr>
-        </thead>
+  const totals = data.lines.reduce(
+    (acc, line) => ({
+      own: acc.own + line.qtyFromOwn,
+      office: acc.office + line.qtyFromOffice,
+      borrowed: acc.borrowed + line.qtyFromBorrow,
+      short: acc.short + line.qtyShort,
+    }),
+    { own: 0, office: 0, borrowed: 0, short: 0 },
+  );
 
-        <tbody className="divide-y divide-slate-100">
-          {data.lines.map((line) => (
-            <tr key={line.lineId}>
-              <td className="px-4 py-2 text-sm text-slate-700">
-                <span className="font-medium text-slate-900">
-                  {line.componentCode}
-                </span>{" "}
-                — {line.componentName}
-              </td>
-              <td className="px-4 py-2 text-right text-sm text-slate-700">
-                {line.qtyNeeded}
-              </td>
-              <td className="px-4 py-2 text-right text-sm text-slate-700">
-                {line.qtyFromOwn}
-              </td>
-              <td className="px-4 py-2 text-right text-sm text-slate-700">
-                {line.qtyFromOffice}
-              </td>
-              <td className="px-4 py-2 text-right text-sm text-slate-700">
-                {line.qtyFromBorrow}
-              </td>
-              <td
-                className={`px-4 py-2 text-right text-sm font-semibold ${
-                  line.qtyShort > 0 ? "text-amber-700" : "text-slate-700"
-                }`}
+  return (
+    <div className="space-y-4">
+      <ul className="space-y-3">
+        {data.lines.map((line) => {
+          // qtyNeeded can, in principle, be less than own+office+borrowed+short
+          // would suggest is possible — but never is in practice, since the
+          // resolver never allocates past it. Guards div-by-zero only.
+          const denominator = Math.max(
+            line.qtyNeeded,
+            line.qtyFromOwn +
+              line.qtyFromOffice +
+              line.qtyFromBorrow +
+              line.qtyShort,
+            1,
+          );
+          const ownPct = (line.qtyFromOwn / denominator) * 100;
+          const officePct = (line.qtyFromOffice / denominator) * 100;
+          const borrowedPct = (line.qtyFromBorrow / denominator) * 100;
+          const shortPct = (line.qtyShort / denominator) * 100;
+
+          return (
+            <li
+              key={line.lineId}
+              className="rounded-lg border border-slate-200 bg-white p-4"
+            >
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <p className="text-sm text-slate-700">
+                  <span className="font-medium text-slate-900">
+                    {line.componentCode}
+                  </span>{" "}
+                  — {line.componentName}
+                </p>
+                <span className="whitespace-nowrap text-xs text-slate-500">
+                  Needed: {line.qtyNeeded}
+                </span>
+              </div>
+
+              <div
+                className="mb-3 flex h-2 overflow-hidden rounded-full bg-slate-100"
+                role="img"
+                aria-label={`Own quota ${line.qtyFromOwn}, office ${line.qtyFromOffice}, borrowed ${line.qtyFromBorrow}, short ${line.qtyShort}, out of ${line.qtyNeeded} needed`}
               >
-                {line.qtyShort}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                {ownPct > 0 && (
+                  <div
+                    className="bg-green-500"
+                    style={{ width: `${ownPct}%` }}
+                  />
+                )}
+                {officePct > 0 && (
+                  <div
+                    className="bg-blue-500"
+                    style={{ width: `${officePct}%` }}
+                  />
+                )}
+                {borrowedPct > 0 && (
+                  <div
+                    className="bg-yellow-500"
+                    style={{ width: `${borrowedPct}%` }}
+                  />
+                )}
+                {shortPct > 0 && (
+                  <div
+                    className="bg-red-500"
+                    style={{ width: `${shortPct}%` }}
+                  />
+                )}
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {line.qtyFromOwn > 0 && (
+                  <TierBadge
+                    label="Own Quota"
+                    qty={line.qtyFromOwn}
+                    className="bg-green-100 text-green-700"
+                  />
+                )}
+                {line.qtyFromOffice > 0 && (
+                  <TierBadge
+                    label="Office"
+                    qty={line.qtyFromOffice}
+                    className="bg-blue-100 text-blue-700"
+                  />
+                )}
+                {line.qtyFromBorrow > 0 && (
+                  <TierBadge
+                    label="Borrowed"
+                    qty={line.qtyFromBorrow}
+                    className="bg-yellow-100 text-yellow-800"
+                  />
+                )}
+                {line.qtyShort > 0 && (
+                  <TierBadge
+                    label="Short"
+                    qty={line.qtyShort}
+                    className="bg-red-100 text-red-700"
+                  />
+                )}
+                {line.qtyFromOwn === 0 &&
+                  line.qtyFromOffice === 0 &&
+                  line.qtyFromBorrow === 0 &&
+                  line.qtyShort === 0 && (
+                    <span className="text-xs text-slate-400">
+                      Not yet resolved.
+                    </span>
+                  )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Totals across every line
+        </p>
+
+        <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
+          <span className="text-green-700">
+            <span className="font-semibold">{totals.own}</span> from own
+            quota
+          </span>
+          <span className="text-blue-700">
+            <span className="font-semibold">{totals.office}</span> from
+            office
+          </span>
+          <span className="text-yellow-800">
+            <span className="font-semibold">{totals.borrowed}</span> borrowed
+          </span>
+          <span className="text-red-700">
+            <span className="font-semibold">{totals.short}</span> short
+          </span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -261,6 +370,70 @@ function IssuePreviewList({ requisitionId }: { requisitionId: string }) {
   );
 }
 
+/**
+ * Task 6.3. Shown inside the return modal — component identity and qtyIssued,
+ * the max returnable, straight from the server. The editable good/damaged/
+ * lost/used-up inputs still come from the requisition object already held by
+ * the page (it already carries qtyIssued per line), but this lazily-fetched
+ * panel is the same "confirm what you're recording" pattern as the issue
+ * modal's IssuePreviewList.
+ */
+function ReturnPreviewList({ requisitionId }: { requisitionId: string }) {
+  const { data, isLoading, isError, error } = useQuery({
+    queryKey: ["requisition-return-preview", requisitionId],
+    queryFn: () => getReturnPreview(requisitionId),
+  });
+
+  if (isLoading) {
+    return <p className="text-sm text-slate-500">Loading components...</p>;
+  }
+
+  if (isError) {
+    return <p className="text-sm text-red-600">{getErrorMessage(error)}</p>;
+  }
+
+  if (!data || data.lines.length === 0) {
+    return (
+      <p className="text-sm text-slate-500">
+        No issued components to return.
+      </p>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto rounded-lg border border-slate-200">
+      <table className="min-w-full divide-y divide-slate-200">
+        <thead className="bg-slate-50">
+          <tr>
+            <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Component
+            </th>
+            <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Qty Issued (max returnable)
+            </th>
+          </tr>
+        </thead>
+
+        <tbody className="divide-y divide-slate-100 bg-white">
+          {data.lines.map((line) => (
+            <tr key={line.lineId}>
+              <td className="px-4 py-2 text-sm text-slate-700">
+                <span className="font-medium text-slate-900">
+                  {line.componentCode}
+                </span>{" "}
+                — {line.componentName}
+              </td>
+              <td className="px-4 py-2 text-right text-sm font-semibold text-slate-700">
+                {line.qtyIssued}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function Requisitions() {
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
@@ -313,6 +486,7 @@ export default function Requisitions() {
     useState<Requisition | null>(null);
   const [issueError, setIssueError] = useState("");
 
+  const [returnSuccessMessage, setReturnSuccessMessage] = useState("");
   const [returnRequisitionTarget, setReturnRequisitionTarget] =
     useState<Requisition | null>(null);
   const [returnDrafts, setReturnDrafts] = useState<
@@ -553,8 +727,11 @@ export default function Requisitions() {
       items: ReturnRequisitionItemInput[];
     }) => returnRequisition(requisitionId, { items }),
     onSuccess: async () => {
-      await refresh();
+      setReturnSuccessMessage(
+        "Return recorded — good stock restored, losses logged.",
+      );
       closeReturnModal();
+      await refresh();
     },
     onError: (mutationError: unknown) => {
       setReturnError(getErrorMessage(mutationError));
@@ -769,6 +946,7 @@ export default function Requisitions() {
 
     setReturnDrafts(drafts);
     setReturnError("");
+    setReturnSuccessMessage("");
     setReturnRequisitionTarget(requisition);
   }
 
@@ -817,13 +995,14 @@ export default function Requisitions() {
       }
 
       const total = goodQty + damagedQty + lostQty + usedUpQty;
-      const outstanding =
-        line.qtyIssued -
-        (line.qtyReturnedGood + line.qtyDamaged + line.qtyLost + line.qtyUsedUp);
 
-      if (total > outstanding) {
+      // The server requires every issued line's return to fully account for
+      // its qtyIssued in this one call (returnRequisition rejects any other
+      // sum with "Return quantity mismatch") — checked here too so the user
+      // sees it before submitting, not after a round trip.
+      if (line.qtyIssued > 0 && total !== line.qtyIssued) {
         setReturnError(
-          `${line.component.code}: returned quantity exceeds what is still outstanding (${outstanding}).`,
+          `${line.component.code}: good + damaged + lost + used up must add up to the issued quantity (${line.qtyIssued}), not ${total}.`,
         );
         return;
       }
@@ -948,6 +1127,24 @@ export default function Requisitions() {
           <button
             type="button"
             onClick={() => setIssueSuccessMessage("")}
+            aria-label="Dismiss"
+            className="text-green-600 transition hover:text-green-800"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
+      {returnSuccessMessage && (
+        <div
+          role="status"
+          className="flex items-center justify-between gap-3 rounded-lg bg-green-50 px-4 py-3 text-sm text-green-700"
+        >
+          <span>{returnSuccessMessage}</span>
+
+          <button
+            type="button"
+            onClick={() => setReturnSuccessMessage("")}
             aria-label="Dismiss"
             className="text-green-600 transition hover:text-green-800"
           >
@@ -1860,6 +2057,8 @@ export default function Requisitions() {
             </div>
 
             <form onSubmit={handleReturnSubmit} className="space-y-5 p-6">
+              <ReturnPreviewList requisitionId={returnRequisitionTarget.id} />
+
               <div className="overflow-x-auto rounded-lg border border-slate-200">
                 <table className="min-w-full divide-y divide-slate-200">
                   <thead className="bg-slate-50">

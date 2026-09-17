@@ -77,6 +77,21 @@ export interface IssuePreview {
   lines: IssuePreviewLine[];
 }
 
+/** Task 6.3 — what the store manager sees before recording a return. */
+export type ReturnPreviewLine = {
+  lineId: string;
+  componentId: string;
+  componentCode: string;
+  componentName: string;
+  qtyIssued: number;
+};
+
+export interface ReturnPreview {
+  requisitionId: string;
+  status: string;
+  lines: ReturnPreviewLine[];
+}
+
 /** Roles that see every department's requisitions. */
 const UNSCOPED_ROLES: Role[] = [
   "CENTRAL_STORE_OFFICER",
@@ -528,6 +543,36 @@ export class RequisitionService {
         qtyNeeded: line.qtyNeeded,
         currentStock: stockByComponent.get(line.componentId) ?? 0,
       })),
+    };
+  }
+
+  /**
+   * Task 6.3. A per-line breakdown for the store manager to review before
+   * recording a return — component identity alongside qtyIssued, the most
+   * that line can legitimately be returned (returnRequisition itself
+   * enforces this: every item's good+damaged+lost+usedUp must sum to
+   * exactly its line's qtyIssued). Lines that were never issued are left
+   * out — there is nothing to return for them. Read-only, like
+   * getIssuePreview.
+   */
+  static async getReturnPreview(
+    id: string,
+    actor: RequisitionActor,
+  ): Promise<ReturnPreview> {
+    const requisition = await this.getRequisitionById(id, actor);
+
+    return {
+      requisitionId: requisition.id,
+      status: requisition.status,
+      lines: requisition.lines
+        .filter((line) => line.qtyIssued > 0)
+        .map((line) => ({
+          lineId: line.id,
+          componentId: line.componentId,
+          componentCode: line.component.code,
+          componentName: line.component.name,
+          qtyIssued: line.qtyIssued,
+        })),
     };
   }
 
