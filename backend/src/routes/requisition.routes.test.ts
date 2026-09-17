@@ -858,6 +858,65 @@ describe("Requisition CRUD API Integration Tests", () => {
       requisitionId = res.body.data.id;
     });
 
+    it("rejects unauthenticated issue-preview requests", async () => {
+      const res = await request(app).get(
+        `/api/requisitions/${requisitionId}/issue-preview`,
+      );
+
+      expect(res.status).toBe(401);
+    });
+
+    it("stops a student previewing a requisition's issue", async () => {
+      const res = await request(app)
+        .get(`/api/requisitions/${requisitionId}/issue-preview`)
+        .set("Authorization", `Bearer ${studentToken}`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it("returns 404 for an unknown requisition on issue-preview", async () => {
+      const res = await request(app)
+        .get("/api/requisitions/nonexistent/issue-preview")
+        .set("Authorization", `Bearer ${centralToken}`);
+
+      expect(res.status).toBe(404);
+    });
+
+    it("previews a requisition's components, quantities and current stock", async () => {
+      await prisma.stock.create({
+        data: { componentId: componentOneId, onHand: 10, spareQty: 0 },
+      });
+
+      await prisma.requisition.update({
+        where: { id: requisitionId },
+        data: { status: "READY" },
+      });
+
+      const res = await request(app)
+        .get(`/api/requisitions/${requisitionId}/issue-preview`)
+        .set("Authorization", `Bearer ${centralToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.requisitionId).toBe(requisitionId);
+      expect(res.body.data.status).toBe("READY");
+      expect(res.body.data.lines).toHaveLength(1);
+
+      const line = res.body.data.lines[0];
+      expect(line.componentId).toBe(componentOneId);
+      expect(line.componentCode).toBe(testComponentCodes[0]);
+      expect(line.qtyNeeded).toBe(5);
+      expect(line.currentStock).toBe(10);
+    });
+
+    it("previews zero current stock for a component with no stock row yet", async () => {
+      const res = await request(app)
+        .get(`/api/requisitions/${requisitionId}/issue-preview`)
+        .set("Authorization", `Bearer ${centralToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.lines[0].currentStock).toBe(0);
+    });
+
     it("rejects unauthenticated issue requests", async () => {
       const res = await request(app).post(
         `/api/requisitions/${requisitionId}/issue`,

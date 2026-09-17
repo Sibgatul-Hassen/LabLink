@@ -2,6 +2,7 @@ import { apiClient } from "./client";
 import type {
   CreateRequisitionLineInput,
   CreateRequisitionRequest,
+  IssuePreview,
   Requisition,
   RequisitionListResponse,
   RequisitionStatus,
@@ -17,6 +18,10 @@ interface RequisitionResponse {
 
 interface ResolutionBreakdownResponse {
   data: ResolutionBreakdown;
+}
+
+interface IssuePreviewResponse {
+  data: IssuePreview;
 }
 
 interface GetRequisitionsParams {
@@ -142,6 +147,14 @@ export async function draftRequisitionForSession(
 ): Promise<Requisition> {
   const response = await apiClient.post<RequisitionResponse>(
     `/api/sessions/${sessionId}/draft-requisition`,
+  );
+
+  return response.data.data;
+}
+
+export async function getIssuePreview(id: string): Promise<IssuePreview> {
+  const response = await apiClient.get<IssuePreviewResponse>(
+    `/api/requisitions/${id}/issue-preview`,
   );
 
   return response.data.data;
