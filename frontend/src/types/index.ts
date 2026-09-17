@@ -820,3 +820,20 @@ export interface ReceiveGoodsRequest {
   poNumber: string;
   qtyReceived: number;
 }
+
+// ─────────────── issue preview (task 6.2) ───────────────
+
+export interface IssuePreviewLine {
+  lineId: string;
+  componentId: string;
+  componentCode: string;
+  componentName: string;
+  qtyNeeded: number;
+  currentStock: number;
+}
+
+export interface IssuePreview {
+  requisitionId: string;
+  status: RequisitionStatus;
+  lines: IssuePreviewLine[];
+}

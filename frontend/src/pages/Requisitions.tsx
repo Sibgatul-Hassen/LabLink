@@ -12,6 +12,7 @@ import {
   createRequisition,
   deleteRequisition,
   draftRequisitionForSession,
+  getIssuePreview,
   getRequisitionResolution,
   getRequisitions,
   issueRequisition,
@@ -183,6 +184,83 @@ function ResolutionBreakdownPanel({
   );
 }
 
+/**
+ * Task 6.2. Shown inside the issue modal so the store manager can see what
+ * they are about to hand over — per-line quantity needed alongside current
+ * stock — before confirming. Fetched lazily, only while the modal is open.
+ */
+function IssuePreviewList({ requisitionId }: { requisitionId: string }) {
+  const { data, isLoading, isError, error } = useQuery({
+    queryKey: ["requisition-issue-preview", requisitionId],
+    queryFn: () => getIssuePreview(requisitionId),
+  });
+
+  if (isLoading) {
+    return (
+      <p className="text-sm text-slate-500">Loading components...</p>
+    );
+  }
+
+  if (isError) {
+    return <p className="text-sm text-red-600">{getErrorMessage(error)}</p>;
+  }
+
+  if (!data || data.lines.length === 0) {
+    return (
+      <p className="text-sm text-slate-500">
+        No components on this requisition.
+      </p>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto rounded-lg border border-slate-200">
+      <table className="min-w-full divide-y divide-slate-200">
+        <thead className="bg-slate-50">
+          <tr>
+            <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Component
+            </th>
+            <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Qty to Issue
+            </th>
+            <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Current Stock
+            </th>
+          </tr>
+        </thead>
+
+        <tbody className="divide-y divide-slate-100 bg-white">
+          {data.lines.map((line) => {
+            const insufficient = line.currentStock < line.qtyNeeded;
+
+            return (
+              <tr key={line.lineId}>
+                <td className="px-4 py-2 text-sm text-slate-700">
+                  <span className="font-medium text-slate-900">
+                    {line.componentCode}
+                  </span>{" "}
+                  — {line.componentName}
+                </td>
+                <td className="px-4 py-2 text-right text-sm text-slate-700">
+                  {line.qtyNeeded}
+                </td>
+                <td
+                  className={`px-4 py-2 text-right text-sm font-semibold ${
+                    insufficient ? "text-red-600" : "text-slate-700"
+                  }`}
+                >
+                  {line.currentStock}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function Requisitions() {
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
@@ -229,6 +307,11 @@ export default function Requisitions() {
   const [lineError, setLineError] = useState("");
 
   const [actionError, setActionError] = useState("");
+  const [issueSuccessMessage, setIssueSuccessMessage] = useState("");
+
+  const [issueRequisitionTarget, setIssueRequisitionTarget] =
+    useState<Requisition | null>(null);
+  const [issueError, setIssueError] = useState("");
 
   const [returnRequisitionTarget, setReturnRequisitionTarget] =
     useState<Requisition | null>(null);
@@ -450,11 +533,14 @@ export default function Requisitions() {
   const issueMutation = useMutation({
     mutationFn: issueRequisition,
     onSuccess: async () => {
-      setActionError("");
+      setIssueSuccessMessage(
+        "Requisition issued — components handed over and stock updated.",
+      );
+      closeIssueModal();
       await refresh();
     },
     onError: (mutationError: unknown) => {
-      setActionError(getErrorMessage(mutationError));
+      setIssueError(getErrorMessage(mutationError));
     },
   });
 
@@ -645,17 +731,24 @@ export default function Requisitions() {
     submitMutation.mutate(requisition.id);
   }
 
-  function handleIssue(requisition: Requisition) {
-    const confirmed = window.confirm(
-      "Issue this requisition? Stock will be deducted immediately.",
-    );
+  function openIssueModal(requisition: Requisition) {
+    setIssueError("");
+    setIssueSuccessMessage("");
+    setIssueRequisitionTarget(requisition);
+  }
 
-    if (!confirmed) {
+  function closeIssueModal() {
+    setIssueRequisitionTarget(null);
+    setIssueError("");
+  }
+
+  function handleConfirmIssue() {
+    if (!issueRequisitionTarget) {
       return;
     }
 
-    setActionError("");
-    issueMutation.mutate(requisition.id);
+    setIssueError("");
+    issueMutation.mutate(issueRequisitionTarget.id);
   }
 
   function openReturnModal(requisition: Requisition) {
@@ -845,6 +938,24 @@ export default function Requisitions() {
         </div>
       )}
 
+      {issueSuccessMessage && (
+        <div
+          role="status"
+          className="flex items-center justify-between gap-3 rounded-lg bg-green-50 px-4 py-3 text-sm text-green-700"
+        >
+          <span>{issueSuccessMessage}</span>
+
+          <button
+            type="button"
+            onClick={() => setIssueSuccessMessage("")}
+            aria-label="Dismiss"
+            className="text-green-600 transition hover:text-green-800"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         {isLoading ? (
           <div className="p-8 text-center text-sm text-slate-500">
@@ -986,8 +1097,7 @@ export default function Requisitions() {
                             requisition.status === "READY" && (
                               <button
                                 type="button"
-                                onClick={() => handleIssue(requisition)}
-                                disabled={issueMutation.isPending}
+                                onClick={() => openIssueModal(requisition)}
                                 className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                               >
                                 Issue
@@ -1633,6 +1743,93 @@ export default function Requisitions() {
                 </div>
               </form>
             )}
+          </div>
+        </div>
+      )}
+
+      {issueRequisitionTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+          <div className="max-h-full w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">
+                  Issue Requisition
+                </h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  Review the components below before handing them over.
+                  Stock is deducted as soon as you confirm.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={closeIssueModal}
+                className="text-2xl leading-none text-slate-400 transition hover:text-slate-700"
+                aria-label="Close issue form"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-5 p-6">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                <p>
+                  <span className="font-medium text-slate-900">
+                    {issueRequisitionTarget.type}
+                  </span>{" "}
+                  · {issueRequisitionTarget.department.code}
+                  {issueRequisitionTarget.classSession && (
+                    <>
+                      {" "}
+                      ·{" "}
+                      {
+                        issueRequisitionTarget.classSession.routineSlot
+                          .section.course.code
+                      }{" "}
+                      Section{" "}
+                      {
+                        issueRequisitionTarget.classSession.routineSlot
+                          .section.name
+                      }
+                    </>
+                  )}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  {formatMoment(issueRequisitionTarget.neededFrom)} to{" "}
+                  {formatMoment(issueRequisitionTarget.neededTo)}
+                </p>
+              </div>
+
+              <IssuePreviewList requisitionId={issueRequisitionTarget.id} />
+
+              {issueError && (
+                <div
+                  role="alert"
+                  className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"
+                >
+                  {issueError}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
+                <button
+                  type="button"
+                  onClick={closeIssueModal}
+                  className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleConfirmIssue}
+                  disabled={issueMutation.isPending}
+                  className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {issueMutation.isPending ? "Issuing..." : "Confirm Issue"}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

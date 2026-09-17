@@ -61,6 +61,22 @@ export interface ResolutionBreakdown {
   lines: ResolutionBreakdownLine[];
 }
 
+/** Task 6.2 — what the store manager sees before handing a READY requisition over. */
+export type IssuePreviewLine = {
+  lineId: string;
+  componentId: string;
+  componentCode: string;
+  componentName: string;
+  qtyNeeded: number;
+  currentStock: number;
+};
+
+export interface IssuePreview {
+  requisitionId: string;
+  status: string;
+  lines: IssuePreviewLine[];
+}
+
 /** Roles that see every department's requisitions. */
 const UNSCOPED_ROLES: Role[] = [
   "CENTRAL_STORE_OFFICER",
@@ -475,6 +491,45 @@ export class RequisitionService {
   }
 
   // ─────────────── issue & return ───────────────
+
+  /**
+   * Task 6.2. A per-line breakdown for the store manager to review before
+   * confirming issueRequisition — component identity, what the requisition
+   * needs, and how much is currently on the shelf for it. Read-only: unlike
+   * issueRequisition, this never touches stock or the requisition's status,
+   * so it is safe to call at any status (not just READY) without side
+   * effects — the caller decides when showing it makes sense.
+   */
+  static async getIssuePreview(
+    id: string,
+    actor: RequisitionActor,
+  ): Promise<IssuePreview> {
+    const requisition = await this.getRequisitionById(id, actor);
+
+    const stocks = await prisma.stock.findMany({
+      where: {
+        componentId: { in: requisition.lines.map((line) => line.componentId) },
+      },
+      select: { componentId: true, onHand: true },
+    });
+
+    const stockByComponent = new Map(
+      stocks.map((stock) => [stock.componentId, stock.onHand]),
+    );
+
+    return {
+      requisitionId: requisition.id,
+      status: requisition.status,
+      lines: requisition.lines.map((line) => ({
+        lineId: line.id,
+        componentId: line.componentId,
+        componentCode: line.component.code,
+        componentName: line.component.name,
+        qtyNeeded: line.qtyNeeded,
+        currentStock: stockByComponent.get(line.componentId) ?? 0,
+      })),
+    };
+  }
 
   /**
    * Issues a READY requisition: every line is handed out in full, deducted
