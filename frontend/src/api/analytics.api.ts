@@ -46,3 +46,35 @@ export async function getShortageFrequency(params?: {
   );
   return response.data;
 }
+
+// ─── lending network (task 6.9) ───────────────────────────────────────────────
+
+export interface LendingNetworkNode {
+  id: string;
+  code: string;
+  name: string;
+}
+
+export interface LendingNetworkEdge {
+  lenderDeptId: string;
+  lenderCode: string;
+  borrowerDeptId: string;
+  borrowerCode: string;
+  requestCount: number;
+  totalQtyBorrowed: number;
+}
+
+export interface LendingNetworkResponse {
+  nodes: LendingNetworkNode[];
+  edges: LendingNetworkEdge[];
+}
+
+export async function getLendingNetwork(params?: {
+  departmentId?: string;
+}): Promise<LendingNetworkResponse> {
+  const response = await apiClient.get<LendingNetworkResponse>(
+    "/api/analytics/lending-network",
+    { params },
+  );
+  return response.data;
+}

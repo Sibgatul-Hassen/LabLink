@@ -4,6 +4,7 @@ import { prisma } from "../lib/prisma";
 import {
   PeakClassesQuery,
   ShortageFrequencyQuery,
+  LendingNetworkQuery,
 } from "../schemas/analytics.schema";
 
 const peakSessionInclude = {
@@ -83,6 +84,26 @@ export interface ShortageFrequencyItem {
 export interface ShortageFrequencyResult {
   data: ShortageFrequencyItem[];
   total: number;
+}
+
+export interface LendingNetworkNode {
+  id: string;
+  code: string;
+  name: string;
+}
+
+export interface LendingNetworkEdge {
+  lenderDeptId: string;
+  lenderCode: string;
+  borrowerDeptId: string;
+  borrowerCode: string;
+  requestCount: number;
+  totalQtyBorrowed: number;
+}
+
+export interface LendingNetworkResult {
+  nodes: LendingNetworkNode[];
+  edges: LendingNetworkEdge[];
 }
 
 interface SweepEvent {
@@ -298,5 +319,80 @@ export class AnalyticsService {
     });
 
     return { data, total };
+  }
+  static async lendingNetwork(
+    query: LendingNetworkQuery,
+  ): Promise<LendingNetworkResult> {
+    const where: Prisma.BorrowRequestWhereInput = {
+      status: { in: ["HANDED_OVER", "RETURNED"] },
+    };
+
+    if (query.departmentId) {
+      where.OR = [
+        { lenderDeptId: query.departmentId },
+        { borrowerDeptId: query.departmentId },
+      ];
+    }
+
+    const borrows = await prisma.borrowRequest.findMany({
+      where,
+      include: {
+        lender: { select: { id: true, code: true, name: true } },
+        borrower: { select: { id: true, code: true, name: true } },
+        lines: { select: { qtyApproved: true } },
+      },
+    });
+
+    const nodesMap = new Map<string, LendingNetworkNode>();
+    const edgesMap = new Map<string, LendingNetworkEdge>();
+
+    for (const borrow of borrows) {
+      if (!nodesMap.has(borrow.lender.id)) {
+        nodesMap.set(borrow.lender.id, {
+          id: borrow.lender.id,
+          code: borrow.lender.code,
+          name: borrow.lender.name,
+        });
+      }
+      if (!nodesMap.has(borrow.borrower.id)) {
+        nodesMap.set(borrow.borrower.id, {
+          id: borrow.borrower.id,
+          code: borrow.borrower.code,
+          name: borrow.borrower.name,
+        });
+      }
+
+      const edgeKey = `${borrow.lender.id}-${borrow.borrower.id}`;
+      const totalQty = borrow.lines.reduce(
+        (sum, line) => sum + Number(line.qtyApproved ?? 0),
+        0
+      );
+
+      let edge = edgesMap.get(edgeKey);
+      if (!edge) {
+        edge = {
+          lenderDeptId: borrow.lender.id,
+          lenderCode: borrow.lender.code,
+          borrowerDeptId: borrow.borrower.id,
+          borrowerCode: borrow.borrower.code,
+          requestCount: 0,
+          totalQtyBorrowed: 0,
+        };
+        edgesMap.set(edgeKey, edge);
+      }
+      edge.requestCount += 1;
+      edge.totalQtyBorrowed += totalQty;
+    }
+
+    return {
+      nodes: Array.from(nodesMap.values()).sort((a, b) =>
+        a.code.localeCompare(b.code)
+      ),
+      edges: Array.from(edgesMap.values()).sort(
+        (a, b) =>
+          a.lenderCode.localeCompare(b.lenderCode) ||
+          a.borrowerCode.localeCompare(b.borrowerCode)
+      ),
+    };
   }
 }
