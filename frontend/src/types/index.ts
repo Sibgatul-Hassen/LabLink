@@ -821,6 +821,69 @@ export interface ReceiveGoodsRequest {
   qtyReceived: number;
 }
 
+// ─────────────── borrowing (task 6.5) ───────────────
+
+export type BorrowStatus =
+  | "REQUESTED"
+  | "APPROVED"
+  | "REJECTED"
+  | "HANDED_OVER"
+  | "RETURNED"
+  | "CANCELLED";
+
+export interface BorrowLineComponent {
+  id: string;
+  code: string;
+  name: string;
+  unit: string;
+}
+
+export interface BorrowLine {
+  id: string;
+  borrowRequestId: string;
+  componentId: string;
+  qtyRequested: number;
+  qtyApproved: number | null;
+  component: BorrowLineComponent;
+}
+
+export interface BorrowDepartment {
+  id: string;
+  code: string;
+  name: string;
+}
+
+export interface BorrowRequisition {
+  id: string;
+  type: RequisitionType;
+  status: RequisitionStatus;
+  neededFrom: string;
+  neededTo: string;
+}
+
+export interface BorrowRequest {
+  id: string;
+  requisitionId: string | null;
+  lenderDeptId: string;
+  borrowerDeptId: string;
+  status: BorrowStatus;
+  rejectionReason: string | null;
+  returnDeadline: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lender: BorrowDepartment;
+  borrower: BorrowDepartment;
+  lines: BorrowLine[];
+  requisition: BorrowRequisition | null;
+}
+
+export interface BorrowRequestListResponse {
+  data: BorrowRequest[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
 // ─────────────── issue preview (task 6.2) ───────────────
 
 export interface IssuePreviewLine {

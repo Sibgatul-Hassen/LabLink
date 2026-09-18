@@ -37,6 +37,11 @@ const PURCHASE_REQUESTS_LINK: SidebarLink = {
   to: "/purchase-requests",
 };
 
+const BORROW_REQUESTS_LINK: SidebarLink = {
+  label: "Borrow Requests",
+  to: "/borrow-requests",
+};
+
 const DEPARTMENTS_LINK: SidebarLink = {
   label: "Departments",
   to: "/departments",
@@ -54,17 +59,20 @@ const SIDEBAR_LINKS_BY_ROLE: Record<Role, SidebarLink[]> = {
     ...COMMON_LINKS,
     PEAK_CLASS_LOAD_LINK,
     PURCHASE_REQUESTS_LINK,
+    BORROW_REQUESTS_LINK,
   ],
   CENTRAL_STORE_OFFICER: [
     ...COMMON_LINKS,
     PEAK_CLASS_LOAD_LINK,
     PURCHASE_REQUESTS_LINK,
+    BORROW_REQUESTS_LINK,
   ],
   OFFICE_ADMIN: [...COMMON_LINKS, PEAK_CLASS_LOAD_LINK, PURCHASE_REQUESTS_LINK],
   SYSTEM_ADMIN: [
     ...COMMON_LINKS,
     PEAK_CLASS_LOAD_LINK,
     PURCHASE_REQUESTS_LINK,
+    BORROW_REQUESTS_LINK,
     DEPARTMENTS_LINK,
     USERS_LINK,
   ],
