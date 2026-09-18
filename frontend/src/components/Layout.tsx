@@ -146,14 +146,14 @@ export default function Layout({ children }: LayoutProps) {
       </header>
 
       <div className="flex min-h-[calc(100vh-4rem)]">
-        <aside className="w-64 border-r bg-slate-900 p-4">
-          <nav className="space-y-2">
+        <aside className="w-64 flex-shrink-0 border-r bg-slate-900 p-4 overflow-y-auto h-[calc(100vh-4rem)] sticky top-16">
+          <nav className="space-y-1">
             {sidebarLinks.map((link) => (
               <NavLink
                 key={link.label}
                 to={link.to}
                 className={({ isActive }) =>
-                  `block rounded-md px-4 py-3 text-sm font-medium transition ${
+                  `block rounded-md px-3 py-2 text-sm font-medium transition ${
                     isActive
                       ? "bg-slate-700 text-white"
                       : "text-slate-300 hover:bg-slate-800 hover:text-white"
