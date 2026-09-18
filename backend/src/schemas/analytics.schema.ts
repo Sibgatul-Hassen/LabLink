@@ -17,3 +17,9 @@ export const shortageFrequencyQuerySchema = z.object({
 });
 
 export type ShortageFrequencyQuery = z.infer<typeof shortageFrequencyQuerySchema>;
+
+export const lendingNetworkQuerySchema = z.object({
+  departmentId: z.string().optional(),
+});
+
+export type LendingNetworkQuery = z.infer<typeof lendingNetworkQuerySchema>;
