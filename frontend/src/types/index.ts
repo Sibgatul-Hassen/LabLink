@@ -883,3 +883,36 @@ export interface BorrowRequestListResponse {
   page: number;
   limit: number;
 }
+
+// ─────────────── issue preview (task 6.2) ───────────────
+
+export interface IssuePreviewLine {
+  lineId: string;
+  componentId: string;
+  componentCode: string;
+  componentName: string;
+  qtyNeeded: number;
+  currentStock: number;
+}
+
+export interface IssuePreview {
+  requisitionId: string;
+  status: RequisitionStatus;
+  lines: IssuePreviewLine[];
+}
+
+// ─────────────── return preview (task 6.3) ───────────────
+
+export interface ReturnPreviewLine {
+  lineId: string;
+  componentId: string;
+  componentCode: string;
+  componentName: string;
+  qtyIssued: number;
+}
+
+export interface ReturnPreview {
+  requisitionId: string;
+  status: RequisitionStatus;
+  lines: ReturnPreviewLine[];
+}

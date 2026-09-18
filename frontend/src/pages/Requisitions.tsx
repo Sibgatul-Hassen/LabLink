@@ -12,8 +12,10 @@ import {
   createRequisition,
   deleteRequisition,
   draftRequisitionForSession,
+  getIssuePreview,
   getRequisitionResolution,
   getRequisitions,
+  getReturnPreview,
   issueRequisition,
   removeRequisitionLine,
   returnRequisition,
@@ -91,11 +93,34 @@ function formatMoment(value: string): string {
   return `${date.toISOString().slice(0, 10)} ${date.toISOString().slice(11, 16)}`;
 }
 
+/** Task 6.4. A small rounded pill for one resolution tier, shown only when it
+ *  contributed a nonzero quantity to the line. */
+function TierBadge({
+  label,
+  qty,
+  className,
+}: {
+  label: string;
+  qty: number;
+  className: string;
+}) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${className}`}
+    >
+      {label}: {qty}
+    </span>
+  );
+}
+
 /**
- * Task 4.3. Only meaningful once the resolver has actually run — DRAFT has
- * nothing to break down yet, and past READY the lines' own qtyIssued/return
- * fields tell the more relevant story — so this is only rendered for
- * SUBMITTED and READY requisitions, fetching lazily on first expand.
+ * Task 4.3, polished in task 6.4. Only meaningful once the resolver has
+ * actually run — DRAFT has nothing to break down yet, and past READY the
+ * lines' own qtyIssued/return fields tell the more relevant story — so this
+ * is only rendered for SUBMITTED and READY requisitions, fetching lazily on
+ * first expand. Each line gets a stacked progress bar (own/office/borrowed/
+ * short, proportional to qtyNeeded) and colour-coded badges, with a totals
+ * summary across every line at the bottom.
  */
 function ResolutionBreakdownPanel({
   requisitionId,
@@ -121,163 +146,293 @@ function ResolutionBreakdownPanel({
     return <p className="text-sm text-slate-500">No lines to resolve.</p>;
   }
 
+  const totals = data.lines.reduce(
+    (acc, line) => ({
+      own: acc.own + line.qtyFromOwn,
+      office: acc.office + line.qtyFromOffice,
+      borrowed: acc.borrowed + line.qtyFromBorrow,
+      short: acc.short + line.qtyShort,
+    }),
+    { own: 0, office: 0, borrowed: 0, short: 0 },
+  );
+
   return (
-    <div className="space-y-3">
-      {/* Tier legend */}
-      <div className="flex flex-wrap gap-3 text-xs">
-        <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2.5 w-2.5 rounded-full bg-green-500" />
-          <span className="text-slate-600">Tier 1 — Own Quota</span>
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2.5 w-2.5 rounded-full bg-blue-500" />
-          <span className="text-slate-600">Tier 2 — Office</span>
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2.5 w-2.5 rounded-full bg-purple-500" />
-          <span className="text-slate-600">Tier 3 — Borrowed</span>
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2.5 w-2.5 rounded-full bg-amber-400" />
-          <span className="text-slate-600">Short</span>
-        </span>
-      </div>
+    <div className="space-y-4">
+      <ul className="space-y-3">
+        {data.lines.map((line) => {
+          // qtyNeeded can, in principle, be less than own+office+borrowed+short
+          // would suggest is possible — but never is in practice, since the
+          // resolver never allocates past it. Guards div-by-zero only.
+          const denominator = Math.max(
+            line.qtyNeeded,
+            line.qtyFromOwn +
+              line.qtyFromOffice +
+              line.qtyFromBorrow +
+              line.qtyShort,
+            1,
+          );
+          const ownPct = (line.qtyFromOwn / denominator) * 100;
+          const officePct = (line.qtyFromOffice / denominator) * 100;
+          const borrowedPct = (line.qtyFromBorrow / denominator) * 100;
+          const shortPct = (line.qtyShort / denominator) * 100;
 
-      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-        <table className="min-w-full divide-y divide-slate-200">
-          <thead className="bg-slate-50">
-            <tr>
-              <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Component
-              </th>
-              <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Needed
-              </th>
-              <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-green-600">
-                Own Quota
-              </th>
-              <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-blue-600">
-                Office
-              </th>
-              <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-purple-600">
-                Borrowed
-              </th>
-              <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-amber-600">
-                Short
-              </th>
-            </tr>
-          </thead>
+          return (
+            <li
+              key={line.lineId}
+              className="rounded-lg border border-slate-200 bg-white p-4"
+            >
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <p className="text-sm text-slate-700">
+                  <span className="font-medium text-slate-900">
+                    {line.componentCode}
+                  </span>{" "}
+                  — {line.componentName}
+                </p>
+                <span className="whitespace-nowrap text-xs text-slate-500">
+                  Needed: {line.qtyNeeded}
+                </span>
+              </div>
 
-          <tbody className="divide-y divide-slate-100">
-            {data.lines.map((line) => {
-              const total = line.qtyNeeded;
-              const pctOwn = total > 0 ? (line.qtyFromOwn / total) * 100 : 0;
-              const pctOffice =
-                total > 0 ? (line.qtyFromOffice / total) * 100 : 0;
-              const pctBorrow =
-                total > 0 ? (line.qtyFromBorrow / total) * 100 : 0;
-              const pctShort =
-                total > 0 ? (line.qtyShort / total) * 100 : 0;
-              const fullyFilled = line.qtyShort === 0;
+              <div
+                className="mb-3 flex h-2 overflow-hidden rounded-full bg-slate-100"
+                role="img"
+                aria-label={`Own quota ${line.qtyFromOwn}, office ${line.qtyFromOffice}, borrowed ${line.qtyFromBorrow}, short ${line.qtyShort}, out of ${line.qtyNeeded} needed`}
+              >
+                {ownPct > 0 && (
+                  <div
+                    className="bg-green-500"
+                    style={{ width: `${ownPct}%` }}
+                  />
+                )}
+                {officePct > 0 && (
+                  <div
+                    className="bg-blue-500"
+                    style={{ width: `${officePct}%` }}
+                  />
+                )}
+                {borrowedPct > 0 && (
+                  <div
+                    className="bg-yellow-500"
+                    style={{ width: `${borrowedPct}%` }}
+                  />
+                )}
+                {shortPct > 0 && (
+                  <div
+                    className="bg-red-500"
+                    style={{ width: `${shortPct}%` }}
+                  />
+                )}
+              </div>
 
-              return (
-                <tr
-                  key={line.lineId}
-                  className={fullyFilled ? "" : "bg-amber-50/40"}
-                >
-                  <td className="px-4 py-3">
-                    <p className="font-medium text-slate-900">
-                      {line.componentCode}
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      {line.componentName}
-                    </p>
-                    {/* stacked colour bar */}
-                    <div className="mt-1.5 flex h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
-                      {pctOwn > 0 && (
-                        <div
-                          className="h-full bg-green-500"
-                          style={{ width: `${pctOwn}%` }}
-                        />
-                      )}
-                      {pctOffice > 0 && (
-                        <div
-                          className="h-full bg-blue-500"
-                          style={{ width: `${pctOffice}%` }}
-                        />
-                      )}
-                      {pctBorrow > 0 && (
-                        <div
-                          className="h-full bg-purple-500"
-                          style={{ width: `${pctBorrow}%` }}
-                        />
-                      )}
-                      {pctShort > 0 && (
-                        <div
-                          className="h-full bg-amber-400"
-                          style={{ width: `${pctShort}%` }}
-                        />
-                      )}
-                    </div>
-                  </td>
+              <div className="flex flex-wrap gap-2">
+                {line.qtyFromOwn > 0 && (
+                  <TierBadge
+                    label="Own Quota"
+                    qty={line.qtyFromOwn}
+                    className="bg-green-100 text-green-700"
+                  />
+                )}
+                {line.qtyFromOffice > 0 && (
+                  <TierBadge
+                    label="Office"
+                    qty={line.qtyFromOffice}
+                    className="bg-blue-100 text-blue-700"
+                  />
+                )}
+                {line.qtyFromBorrow > 0 && (
+                  <TierBadge
+                    label="Borrowed"
+                    qty={line.qtyFromBorrow}
+                    className="bg-yellow-100 text-yellow-800"
+                  />
+                )}
+                {line.qtyShort > 0 && (
+                  <TierBadge
+                    label="Short"
+                    qty={line.qtyShort}
+                    className="bg-red-100 text-red-700"
+                  />
+                )}
+                {line.qtyFromOwn === 0 &&
+                  line.qtyFromOffice === 0 &&
+                  line.qtyFromBorrow === 0 &&
+                  line.qtyShort === 0 && (
+                    <span className="text-xs text-slate-400">
+                      Not yet resolved.
+                    </span>
+                  )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
 
-                  <td className="px-4 py-3 text-right text-sm font-medium text-slate-700">
-                    {line.qtyNeeded}
-                  </td>
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Totals across every line
+        </p>
 
-                  {/* Tier 1 — green */}
-                  <td className="px-4 py-3 text-right text-sm">
-                    {line.qtyFromOwn > 0 ? (
-                      <span className="font-semibold text-green-700">
-                        {line.qtyFromOwn}
-                      </span>
-                    ) : (
-                      <span className="text-slate-300">—</span>
-                    )}
-                  </td>
-
-                  {/* Tier 2 — blue */}
-                  <td className="px-4 py-3 text-right text-sm">
-                    {line.qtyFromOffice > 0 ? (
-                      <span className="font-semibold text-blue-700">
-                        {line.qtyFromOffice}
-                      </span>
-                    ) : (
-                      <span className="text-slate-300">—</span>
-                    )}
-                  </td>
-
-                  {/* Tier 3 — purple */}
-                  <td className="px-4 py-3 text-right text-sm">
-                    {line.qtyFromBorrow > 0 ? (
-                      <span className="font-semibold text-purple-700">
-                        {line.qtyFromBorrow}
-                      </span>
-                    ) : (
-                      <span className="text-slate-300">—</span>
-                    )}
-                  </td>
-
-                  {/* Short — amber */}
-                  <td className="px-4 py-3 text-right text-sm">
-                    {line.qtyShort > 0 ? (
-                      <span className="font-semibold text-amber-700">
-                        {line.qtyShort}
-                      </span>
-                    ) : (
-                      <span className="font-semibold text-green-600">✓</span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
+          <span className="text-green-700">
+            <span className="font-semibold">{totals.own}</span> from own
+            quota
+          </span>
+          <span className="text-blue-700">
+            <span className="font-semibold">{totals.office}</span> from
+            office
+          </span>
+          <span className="text-yellow-800">
+            <span className="font-semibold">{totals.borrowed}</span> borrowed
+          </span>
+          <span className="text-red-700">
+            <span className="font-semibold">{totals.short}</span> short
+          </span>
+        </div>
       </div>
     </div>
   );
 }
 
+/**
+ * Task 6.2. Shown inside the issue modal so the store manager can see what
+ * they are about to hand over — per-line quantity needed alongside current
+ * stock — before confirming. Fetched lazily, only while the modal is open.
+ */
+function IssuePreviewList({ requisitionId }: { requisitionId: string }) {
+  const { data, isLoading, isError, error } = useQuery({
+    queryKey: ["requisition-issue-preview", requisitionId],
+    queryFn: () => getIssuePreview(requisitionId),
+  });
+
+  if (isLoading) {
+    return (
+      <p className="text-sm text-slate-500">Loading components...</p>
+    );
+  }
+
+  if (isError) {
+    return <p className="text-sm text-red-600">{getErrorMessage(error)}</p>;
+  }
+
+  if (!data || data.lines.length === 0) {
+    return (
+      <p className="text-sm text-slate-500">
+        No components on this requisition.
+      </p>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto rounded-lg border border-slate-200">
+      <table className="min-w-full divide-y divide-slate-200">
+        <thead className="bg-slate-50">
+          <tr>
+            <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Component
+            </th>
+            <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Qty to Issue
+            </th>
+            <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Current Stock
+            </th>
+          </tr>
+        </thead>
+
+        <tbody className="divide-y divide-slate-100 bg-white">
+          {data.lines.map((line) => {
+            const insufficient = line.currentStock < line.qtyNeeded;
+
+            return (
+              <tr key={line.lineId}>
+                <td className="px-4 py-2 text-sm text-slate-700">
+                  <span className="font-medium text-slate-900">
+                    {line.componentCode}
+                  </span>{" "}
+                  — {line.componentName}
+                </td>
+                <td className="px-4 py-2 text-right text-sm text-slate-700">
+                  {line.qtyNeeded}
+                </td>
+                <td
+                  className={`px-4 py-2 text-right text-sm font-semibold ${
+                    insufficient ? "text-red-600" : "text-slate-700"
+                  }`}
+                >
+                  {line.currentStock}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/**
+ * Task 6.3. Shown inside the return modal — component identity and qtyIssued,
+ * the max returnable, straight from the server. The editable good/damaged/
+ * lost/used-up inputs still come from the requisition object already held by
+ * the page (it already carries qtyIssued per line), but this lazily-fetched
+ * panel is the same "confirm what you're recording" pattern as the issue
+ * modal's IssuePreviewList.
+ */
+function ReturnPreviewList({ requisitionId }: { requisitionId: string }) {
+  const { data, isLoading, isError, error } = useQuery({
+    queryKey: ["requisition-return-preview", requisitionId],
+    queryFn: () => getReturnPreview(requisitionId),
+  });
+
+  if (isLoading) {
+    return <p className="text-sm text-slate-500">Loading components...</p>;
+  }
+
+  if (isError) {
+    return <p className="text-sm text-red-600">{getErrorMessage(error)}</p>;
+  }
+
+  if (!data || data.lines.length === 0) {
+    return (
+      <p className="text-sm text-slate-500">
+        No issued components to return.
+      </p>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto rounded-lg border border-slate-200">
+      <table className="min-w-full divide-y divide-slate-200">
+        <thead className="bg-slate-50">
+          <tr>
+            <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Component
+            </th>
+            <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Qty Issued (max returnable)
+            </th>
+          </tr>
+        </thead>
+
+        <tbody className="divide-y divide-slate-100 bg-white">
+          {data.lines.map((line) => (
+            <tr key={line.lineId}>
+              <td className="px-4 py-2 text-sm text-slate-700">
+                <span className="font-medium text-slate-900">
+                  {line.componentCode}
+                </span>{" "}
+                — {line.componentName}
+              </td>
+              <td className="px-4 py-2 text-right text-sm font-semibold text-slate-700">
+                {line.qtyIssued}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 export default function Requisitions() {
   const queryClient = useQueryClient();
@@ -325,7 +480,13 @@ export default function Requisitions() {
   const [lineError, setLineError] = useState("");
 
   const [actionError, setActionError] = useState("");
+  const [issueSuccessMessage, setIssueSuccessMessage] = useState("");
 
+  const [issueRequisitionTarget, setIssueRequisitionTarget] =
+    useState<Requisition | null>(null);
+  const [issueError, setIssueError] = useState("");
+
+  const [returnSuccessMessage, setReturnSuccessMessage] = useState("");
   const [returnRequisitionTarget, setReturnRequisitionTarget] =
     useState<Requisition | null>(null);
   const [returnDrafts, setReturnDrafts] = useState<
@@ -546,11 +707,14 @@ export default function Requisitions() {
   const issueMutation = useMutation({
     mutationFn: issueRequisition,
     onSuccess: async () => {
-      setActionError("");
+      setIssueSuccessMessage(
+        "Requisition issued — components handed over and stock updated.",
+      );
+      closeIssueModal();
       await refresh();
     },
     onError: (mutationError: unknown) => {
-      setActionError(getErrorMessage(mutationError));
+      setIssueError(getErrorMessage(mutationError));
     },
   });
 
@@ -563,8 +727,11 @@ export default function Requisitions() {
       items: ReturnRequisitionItemInput[];
     }) => returnRequisition(requisitionId, { items }),
     onSuccess: async () => {
-      await refresh();
+      setReturnSuccessMessage(
+        "Return recorded — good stock restored, losses logged.",
+      );
       closeReturnModal();
+      await refresh();
     },
     onError: (mutationError: unknown) => {
       setReturnError(getErrorMessage(mutationError));
@@ -741,17 +908,24 @@ export default function Requisitions() {
     submitMutation.mutate(requisition.id);
   }
 
-  function handleIssue(requisition: Requisition) {
-    const confirmed = window.confirm(
-      "Issue this requisition? Stock will be deducted immediately.",
-    );
+  function openIssueModal(requisition: Requisition) {
+    setIssueError("");
+    setIssueSuccessMessage("");
+    setIssueRequisitionTarget(requisition);
+  }
 
-    if (!confirmed) {
+  function closeIssueModal() {
+    setIssueRequisitionTarget(null);
+    setIssueError("");
+  }
+
+  function handleConfirmIssue() {
+    if (!issueRequisitionTarget) {
       return;
     }
 
-    setActionError("");
-    issueMutation.mutate(requisition.id);
+    setIssueError("");
+    issueMutation.mutate(issueRequisitionTarget.id);
   }
 
   function openReturnModal(requisition: Requisition) {
@@ -772,6 +946,7 @@ export default function Requisitions() {
 
     setReturnDrafts(drafts);
     setReturnError("");
+    setReturnSuccessMessage("");
     setReturnRequisitionTarget(requisition);
   }
 
@@ -820,13 +995,14 @@ export default function Requisitions() {
       }
 
       const total = goodQty + damagedQty + lostQty + usedUpQty;
-      const outstanding =
-        line.qtyIssued -
-        (line.qtyReturnedGood + line.qtyDamaged + line.qtyLost + line.qtyUsedUp);
 
-      if (total > outstanding) {
+      // The server requires every issued line's return to fully account for
+      // its qtyIssued in this one call (returnRequisition rejects any other
+      // sum with "Return quantity mismatch") — checked here too so the user
+      // sees it before submitting, not after a round trip.
+      if (line.qtyIssued > 0 && total !== line.qtyIssued) {
         setReturnError(
-          `${line.component.code}: returned quantity exceeds what is still outstanding (${outstanding}).`,
+          `${line.component.code}: good + damaged + lost + used up must add up to the issued quantity (${line.qtyIssued}), not ${total}.`,
         );
         return;
       }
@@ -938,6 +1114,42 @@ export default function Requisitions() {
           className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"
         >
           {actionError}
+        </div>
+      )}
+
+      {issueSuccessMessage && (
+        <div
+          role="status"
+          className="flex items-center justify-between gap-3 rounded-lg bg-green-50 px-4 py-3 text-sm text-green-700"
+        >
+          <span>{issueSuccessMessage}</span>
+
+          <button
+            type="button"
+            onClick={() => setIssueSuccessMessage("")}
+            aria-label="Dismiss"
+            className="text-green-600 transition hover:text-green-800"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
+      {returnSuccessMessage && (
+        <div
+          role="status"
+          className="flex items-center justify-between gap-3 rounded-lg bg-green-50 px-4 py-3 text-sm text-green-700"
+        >
+          <span>{returnSuccessMessage}</span>
+
+          <button
+            type="button"
+            onClick={() => setReturnSuccessMessage("")}
+            aria-label="Dismiss"
+            className="text-green-600 transition hover:text-green-800"
+          >
+            ×
+          </button>
         </div>
       )}
 
@@ -1082,8 +1294,7 @@ export default function Requisitions() {
                             requisition.status === "READY" && (
                               <button
                                 type="button"
-                                onClick={() => handleIssue(requisition)}
-                                disabled={issueMutation.isPending}
+                                onClick={() => openIssueModal(requisition)}
                                 className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                               >
                                 Issue
@@ -1733,6 +1944,93 @@ export default function Requisitions() {
         </div>
       )}
 
+      {issueRequisitionTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+          <div className="max-h-full w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">
+                  Issue Requisition
+                </h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  Review the components below before handing them over.
+                  Stock is deducted as soon as you confirm.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={closeIssueModal}
+                className="text-2xl leading-none text-slate-400 transition hover:text-slate-700"
+                aria-label="Close issue form"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-5 p-6">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                <p>
+                  <span className="font-medium text-slate-900">
+                    {issueRequisitionTarget.type}
+                  </span>{" "}
+                  · {issueRequisitionTarget.department.code}
+                  {issueRequisitionTarget.classSession && (
+                    <>
+                      {" "}
+                      ·{" "}
+                      {
+                        issueRequisitionTarget.classSession.routineSlot
+                          .section.course.code
+                      }{" "}
+                      Section{" "}
+                      {
+                        issueRequisitionTarget.classSession.routineSlot
+                          .section.name
+                      }
+                    </>
+                  )}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  {formatMoment(issueRequisitionTarget.neededFrom)} to{" "}
+                  {formatMoment(issueRequisitionTarget.neededTo)}
+                </p>
+              </div>
+
+              <IssuePreviewList requisitionId={issueRequisitionTarget.id} />
+
+              {issueError && (
+                <div
+                  role="alert"
+                  className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"
+                >
+                  {issueError}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
+                <button
+                  type="button"
+                  onClick={closeIssueModal}
+                  className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleConfirmIssue}
+                  disabled={issueMutation.isPending}
+                  className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {issueMutation.isPending ? "Issuing..." : "Confirm Issue"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {returnRequisitionTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
           <div className="max-h-full w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-xl">
@@ -1759,6 +2057,8 @@ export default function Requisitions() {
             </div>
 
             <form onSubmit={handleReturnSubmit} className="space-y-5 p-6">
+              <ReturnPreviewList requisitionId={returnRequisitionTarget.id} />
+
               <div className="overflow-x-auto rounded-lg border border-slate-200">
                 <table className="min-w-full divide-y divide-slate-200">
                   <thead className="bg-slate-50">
