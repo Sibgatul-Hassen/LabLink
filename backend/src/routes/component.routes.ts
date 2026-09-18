@@ -60,6 +60,27 @@ router.get(
   },
 );
 
+// GET /api/components/export/csv - Export components as CSV
+router.get(
+  "/components/export/csv",
+  requireAuth,
+  departmentScope,
+  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const query = listComponentsQuerySchema.parse(req.query);
+      const csv = await ComponentService.exportCsv(query);
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader(
+        "Content-Disposition",
+        'attachment; filename="components.csv"',
+      );
+      res.status(200).send(csv);
+    } catch (error) {
+      res.status(400).json({ error: "Invalid query parameters" });
+    }
+  },
+);
+
 // GET /api/components/:id - Get one (all authenticated users)
 router.get(
   "/components/:id",
