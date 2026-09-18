@@ -17,3 +17,32 @@ export async function getPeakClasses(
 
   return response.data;
 }
+
+// ─── shortage frequency (task 6.8) ───────────────────────────────────────────
+
+export interface ShortageFrequencyItem {
+  componentId: string;
+  componentCode: string;
+  componentName: string;
+  category: string;
+  unit: string;
+  shortageCount: number;
+  totalQtyShort: number;
+  avgQtyShort: number;
+}
+
+export interface ShortageFrequencyResponse {
+  data: ShortageFrequencyItem[];
+  total: number;
+}
+
+export async function getShortageFrequency(params?: {
+  limit?: number;
+  departmentId?: string;
+}): Promise<ShortageFrequencyResponse> {
+  const response = await apiClient.get<ShortageFrequencyResponse>(
+    "/api/analytics/shortage-frequency",
+    { params },
+  );
+  return response.data;
+}

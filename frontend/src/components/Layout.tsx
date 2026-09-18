@@ -49,6 +49,11 @@ const DEPARTMENTS_LINK: SidebarLink = {
 };
 const USERS_LINK: SidebarLink = { label: "Users", to: "/users" };
 
+const ANALYTICS_LINK: SidebarLink = {
+  label: "Analytics",
+  to: "/analytics",
+};
+
 // Explicit per-role link lists, never a rank — CENTRAL_STORE_OFFICER has
 // university-wide data scope but low approval authority, so ordering roles
 // on a single scale (and deriving access from that rank) would be wrong.
@@ -61,23 +66,32 @@ const SIDEBAR_LINKS_BY_ROLE: Record<Role, SidebarLink[]> = {
     PEAK_CLASS_LOAD_LINK,
     PURCHASE_REQUESTS_LINK,
     BORROW_REQUESTS_LINK,
+    ANALYTICS_LINK,
   ],
   CENTRAL_STORE_OFFICER: [
     ...COMMON_LINKS,
     PEAK_CLASS_LOAD_LINK,
     PURCHASE_REQUESTS_LINK,
     BORROW_REQUESTS_LINK,
+    ANALYTICS_LINK,
   ],
-  OFFICE_ADMIN: [...COMMON_LINKS, PEAK_CLASS_LOAD_LINK, PURCHASE_REQUESTS_LINK],
+  OFFICE_ADMIN: [
+    ...COMMON_LINKS,
+    PEAK_CLASS_LOAD_LINK,
+    PURCHASE_REQUESTS_LINK,
+    ANALYTICS_LINK,
+  ],
   SYSTEM_ADMIN: [
     ...COMMON_LINKS,
     PEAK_CLASS_LOAD_LINK,
     PURCHASE_REQUESTS_LINK,
     BORROW_REQUESTS_LINK,
+    ANALYTICS_LINK,
     DEPARTMENTS_LINK,
     USERS_LINK,
   ],
 };
+
 
 function getSidebarLinks(role: Role): SidebarLink[] {
   return SIDEBAR_LINKS_BY_ROLE[role] ?? COMMON_LINKS;
