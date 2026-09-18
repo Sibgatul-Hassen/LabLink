@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../store/authStore";
 import type { Role } from "../types";
+import NotificationBell from "./NotificationBell";
 
 interface LayoutProps {
   children: ReactNode;
@@ -110,13 +111,15 @@ export default function Layout({ children }: LayoutProps) {
       <header className="flex h-16 items-center justify-between border-b bg-white px-6 shadow-sm">
         <h1 className="text-xl font-bold text-slate-900">LabLink</h1>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           <div className="hidden text-right sm:block">
             <p className="text-sm font-semibold text-slate-900">
               {user.fullName}
             </p>
             <p className="text-xs text-slate-500">{formatRole(user.role)}</p>
           </div>
+
+          <NotificationBell />
 
           <button
             type="button"
