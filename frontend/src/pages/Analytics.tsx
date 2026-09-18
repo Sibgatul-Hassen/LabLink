@@ -325,7 +325,7 @@ function LendingNetworkView({
 
 const LIMIT_OPTIONS = [10, 20, 30, 50];
 
-function ShortageFrequencyView({ userDeptId }: { userDeptId?: string }) {
+function ShortageFrequencyView() {
   const [limit, setLimit] = useState(20);
 
   const { data, isLoading, isError } = useQuery({
@@ -572,7 +572,7 @@ export default function Analytics() {
 
       {/* Tab content */}
       {tab === "shortage" && (
-        <ShortageFrequencyView userDeptId={user.departmentId ?? undefined} />
+        <ShortageFrequencyView />
       )}
 
       {tab === "lending" && (
