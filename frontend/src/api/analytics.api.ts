@@ -78,3 +78,29 @@ export async function getLendingNetwork(params?: {
   );
   return response.data;
 }
+
+// ─── damage and loss rates (task 6.10) ───────────────────────────────────────
+
+export interface DamageLossItem {
+  sectionId: string;
+  sectionName: string;
+  courseCode: string;
+  instructorName: string | null;
+  labAssistantName: string | null;
+  totalQtyDamaged: number;
+  totalQtyLost: number;
+}
+
+export interface DamageLossResponse {
+  data: DamageLossItem[];
+}
+
+export async function getDamageLossRates(params?: {
+  departmentId?: string;
+}): Promise<DamageLossResponse> {
+  const response = await apiClient.get<DamageLossResponse>(
+    "/api/analytics/damage-loss",
+    { params },
+  );
+  return response.data;
+}

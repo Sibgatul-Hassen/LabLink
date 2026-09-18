@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   getShortageFrequency,
   getLendingNetwork,
+  getDamageLossRates,
   type ShortageFrequencyItem,
   type LendingNetworkEdge,
   type LendingNetworkNode,
@@ -503,9 +504,113 @@ function ShortageFrequencyView() {
   );
 }
 
+// ─── damage and loss view ──────────────────────────────────────────────────
+
+function DamageLossView() {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["damage-loss"],
+    queryFn: () => getDamageLossRates(),
+  });
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div
+            key={i}
+            className="h-16 animate-pulse rounded-xl bg-slate-100"
+          />
+        ))}
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="rounded-md bg-red-50 p-4 text-sm text-red-700">
+        Failed to load damage and loss rates. Please refresh.
+      </div>
+    );
+  }
+
+  const items = data?.data ?? [];
+
+  if (items.length === 0) {
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white p-12 text-center shadow-sm">
+        <span className="text-4xl">🎉</span>
+        <h3 className="mt-4 text-lg font-semibold text-slate-900">
+          No damages or losses recorded
+        </h3>
+        <p className="mt-1 text-sm text-slate-500">
+          All components have been returned in good condition.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="border-b px-6 py-4">
+        <h2 className="text-base font-semibold text-slate-900">
+          Damage & Loss Rates by Section
+        </h2>
+        <p className="mt-1 text-xs text-slate-500">
+          Sections with the highest attrition of laboratory components.
+        </p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left">
+          <thead className="bg-slate-50/50 text-xs uppercase text-slate-500">
+            <tr>
+              <th className="px-6 py-3 font-medium">Course & Section</th>
+              <th className="px-6 py-3 font-medium">Instructor / Assistant</th>
+              <th className="px-6 py-3 text-right font-medium">Damaged</th>
+              <th className="px-6 py-3 text-right font-medium">Lost</th>
+              <th className="px-6 py-3 text-right font-medium text-red-600">Total Attrition</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {items.map((item) => {
+              const total = item.totalQtyDamaged + item.totalQtyLost;
+              return (
+                <tr
+                  key={item.sectionId}
+                  className="transition hover:bg-slate-50/50"
+                >
+                  <td className="px-6 py-4">
+                    <div className="font-medium text-slate-900">
+                      {item.courseCode} — {item.sectionName}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 text-sm text-slate-600">
+                    <div>{item.instructorName ?? "—"}</div>
+                    <div className="text-xs text-slate-400">
+                      Assistant: {item.labAssistantName ?? "—"}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 text-right text-sm font-medium text-amber-600">
+                    {item.totalQtyDamaged > 0 ? item.totalQtyDamaged : "—"}
+                  </td>
+                  <td className="px-6 py-4 text-right text-sm font-medium text-red-600">
+                    {item.totalQtyLost > 0 ? item.totalQtyLost : "—"}
+                  </td>
+                  <td className="px-6 py-4 text-right text-sm font-bold text-slate-900">
+                    {total}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ─── main page ───────────────────────────────────────────────────────────────
 
-type Tab = "shortage" | "lending";
+type Tab = "shortage" | "lending" | "damage";
 
 export default function Analytics() {
   const user = useAuthStore((s) => s.user);
@@ -568,11 +673,27 @@ export default function Analytics() {
         >
           🤝 Lending Network
         </button>
+        <button
+          id="tab-damage"
+          type="button"
+          onClick={() => setTab("damage")}
+          className={`flex-1 rounded-lg px-4 py-2.5 text-sm font-medium transition ${
+            tab === "damage"
+              ? "bg-white text-slate-900 shadow-sm"
+              : "text-slate-500 hover:text-slate-700"
+          }`}
+        >
+          ⚠️ Damage & Loss
+        </button>
       </div>
 
       {/* Tab content */}
       {tab === "shortage" && (
         <ShortageFrequencyView />
+      )}
+
+      {tab === "damage" && (
+        <DamageLossView />
       )}
 
       {tab === "lending" && (
