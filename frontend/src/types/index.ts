@@ -820,3 +820,99 @@ export interface ReceiveGoodsRequest {
   poNumber: string;
   qtyReceived: number;
 }
+
+// ─────────────── borrowing (task 6.5) ───────────────
+
+export type BorrowStatus =
+  | "REQUESTED"
+  | "APPROVED"
+  | "REJECTED"
+  | "HANDED_OVER"
+  | "RETURNED"
+  | "CANCELLED";
+
+export interface BorrowLineComponent {
+  id: string;
+  code: string;
+  name: string;
+  unit: string;
+}
+
+export interface BorrowLine {
+  id: string;
+  borrowRequestId: string;
+  componentId: string;
+  qtyRequested: number;
+  qtyApproved: number | null;
+  component: BorrowLineComponent;
+}
+
+export interface BorrowDepartment {
+  id: string;
+  code: string;
+  name: string;
+}
+
+export interface BorrowRequisition {
+  id: string;
+  type: RequisitionType;
+  status: RequisitionStatus;
+  neededFrom: string;
+  neededTo: string;
+}
+
+export interface BorrowRequest {
+  id: string;
+  requisitionId: string | null;
+  lenderDeptId: string;
+  borrowerDeptId: string;
+  status: BorrowStatus;
+  rejectionReason: string | null;
+  returnDeadline: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lender: BorrowDepartment;
+  borrower: BorrowDepartment;
+  lines: BorrowLine[];
+  requisition: BorrowRequisition | null;
+}
+
+export interface BorrowRequestListResponse {
+  data: BorrowRequest[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+// ─────────────── issue preview (task 6.2) ───────────────
+
+export interface IssuePreviewLine {
+  lineId: string;
+  componentId: string;
+  componentCode: string;
+  componentName: string;
+  qtyNeeded: number;
+  currentStock: number;
+}
+
+export interface IssuePreview {
+  requisitionId: string;
+  status: RequisitionStatus;
+  lines: IssuePreviewLine[];
+}
+
+// ─────────────── return preview (task 6.3) ───────────────
+
+export interface ReturnPreviewLine {
+  lineId: string;
+  componentId: string;
+  componentCode: string;
+  componentName: string;
+  qtyIssued: number;
+}
+
+export interface ReturnPreview {
+  requisitionId: string;
+  status: RequisitionStatus;
+  lines: ReturnPreviewLine[];
+}

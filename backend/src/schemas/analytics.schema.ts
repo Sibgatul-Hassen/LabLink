@@ -10,3 +10,22 @@ export const peakClassesQuerySchema = z.object({
 });
 
 export type PeakClassesQuery = z.infer<typeof peakClassesQuerySchema>;
+
+export const shortageFrequencyQuerySchema = z.object({
+  departmentId: z.string().optional(),
+  limit: z.coerce.number().min(1).max(50).default(20),
+});
+
+export type ShortageFrequencyQuery = z.infer<typeof shortageFrequencyQuerySchema>;
+
+export const lendingNetworkQuerySchema = z.object({
+  departmentId: z.string().optional(),
+});
+
+export type LendingNetworkQuery = z.infer<typeof lendingNetworkQuerySchema>;
+
+export const damageLossQuerySchema = z.object({
+  departmentId: z.string().optional(),
+});
+
+export type DamageLossQuery = z.infer<typeof damageLossQuerySchema>;
