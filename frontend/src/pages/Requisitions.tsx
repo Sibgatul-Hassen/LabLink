@@ -4,18 +4,13 @@ import { Fragment, type FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { getComponents } from "../api/component.api";
-import { getExperiment } from "../api/experiment.api";
-import { getLab } from "../api/lab.api";
 import { getSessions } from "../api/session.api";
 import {
   addRequisitionLine,
   createRequisition,
   deleteRequisition,
-  draftRequisitionForSession,
-  getIssuePreview,
   getRequisitionResolution,
   getRequisitions,
-  getReturnPreview,
   issueRequisition,
   removeRequisitionLine,
   returnRequisition,
@@ -93,34 +88,11 @@ function formatMoment(value: string): string {
   return `${date.toISOString().slice(0, 10)} ${date.toISOString().slice(11, 16)}`;
 }
 
-/** Task 6.4. A small rounded pill for one resolution tier, shown only when it
- *  contributed a nonzero quantity to the line. */
-function TierBadge({
-  label,
-  qty,
-  className,
-}: {
-  label: string;
-  qty: number;
-  className: string;
-}) {
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${className}`}
-    >
-      {label}: {qty}
-    </span>
-  );
-}
-
 /**
- * Task 4.3, polished in task 6.4. Only meaningful once the resolver has
- * actually run — DRAFT has nothing to break down yet, and past READY the
- * lines' own qtyIssued/return fields tell the more relevant story — so this
- * is only rendered for SUBMITTED and READY requisitions, fetching lazily on
- * first expand. Each line gets a stacked progress bar (own/office/borrowed/
- * short, proportional to qtyNeeded) and colour-coded badges, with a totals
- * summary across every line at the bottom.
+ * Task 4.3. Only meaningful once the resolver has actually run — DRAFT has
+ * nothing to break down yet, and past READY the lines' own qtyIssued/return
+ * fields tell the more relevant story — so this is only rendered for
+ * SUBMITTED and READY requisitions, fetching lazily on first expand.
  */
 function ResolutionBreakdownPanel({
   requisitionId,
@@ -146,184 +118,8 @@ function ResolutionBreakdownPanel({
     return <p className="text-sm text-slate-500">No lines to resolve.</p>;
   }
 
-  const totals = data.lines.reduce(
-    (acc, line) => ({
-      own: acc.own + line.qtyFromOwn,
-      office: acc.office + line.qtyFromOffice,
-      borrowed: acc.borrowed + line.qtyFromBorrow,
-      short: acc.short + line.qtyShort,
-    }),
-    { own: 0, office: 0, borrowed: 0, short: 0 },
-  );
-
   return (
-    <div className="space-y-4">
-      <ul className="space-y-3">
-        {data.lines.map((line) => {
-          // qtyNeeded can, in principle, be less than own+office+borrowed+short
-          // would suggest is possible — but never is in practice, since the
-          // resolver never allocates past it. Guards div-by-zero only.
-          const denominator = Math.max(
-            line.qtyNeeded,
-            line.qtyFromOwn +
-              line.qtyFromOffice +
-              line.qtyFromBorrow +
-              line.qtyShort,
-            1,
-          );
-          const ownPct = (line.qtyFromOwn / denominator) * 100;
-          const officePct = (line.qtyFromOffice / denominator) * 100;
-          const borrowedPct = (line.qtyFromBorrow / denominator) * 100;
-          const shortPct = (line.qtyShort / denominator) * 100;
-
-          return (
-            <li
-              key={line.lineId}
-              className="rounded-lg border border-slate-200 bg-white p-4"
-            >
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <p className="text-sm text-slate-700">
-                  <span className="font-medium text-slate-900">
-                    {line.componentCode}
-                  </span>{" "}
-                  — {line.componentName}
-                </p>
-                <span className="whitespace-nowrap text-xs text-slate-500">
-                  Needed: {line.qtyNeeded}
-                </span>
-              </div>
-
-              <div
-                className="mb-3 flex h-2 overflow-hidden rounded-full bg-slate-100"
-                role="img"
-                aria-label={`Own quota ${line.qtyFromOwn}, office ${line.qtyFromOffice}, borrowed ${line.qtyFromBorrow}, short ${line.qtyShort}, out of ${line.qtyNeeded} needed`}
-              >
-                {ownPct > 0 && (
-                  <div
-                    className="bg-green-500"
-                    style={{ width: `${ownPct}%` }}
-                  />
-                )}
-                {officePct > 0 && (
-                  <div
-                    className="bg-blue-500"
-                    style={{ width: `${officePct}%` }}
-                  />
-                )}
-                {borrowedPct > 0 && (
-                  <div
-                    className="bg-yellow-500"
-                    style={{ width: `${borrowedPct}%` }}
-                  />
-                )}
-                {shortPct > 0 && (
-                  <div
-                    className="bg-red-500"
-                    style={{ width: `${shortPct}%` }}
-                  />
-                )}
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                {line.qtyFromOwn > 0 && (
-                  <TierBadge
-                    label="Own Quota"
-                    qty={line.qtyFromOwn}
-                    className="bg-green-100 text-green-700"
-                  />
-                )}
-                {line.qtyFromOffice > 0 && (
-                  <TierBadge
-                    label="Office"
-                    qty={line.qtyFromOffice}
-                    className="bg-blue-100 text-blue-700"
-                  />
-                )}
-                {line.qtyFromBorrow > 0 && (
-                  <TierBadge
-                    label="Borrowed"
-                    qty={line.qtyFromBorrow}
-                    className="bg-yellow-100 text-yellow-800"
-                  />
-                )}
-                {line.qtyShort > 0 && (
-                  <TierBadge
-                    label="Short"
-                    qty={line.qtyShort}
-                    className="bg-red-100 text-red-700"
-                  />
-                )}
-                {line.qtyFromOwn === 0 &&
-                  line.qtyFromOffice === 0 &&
-                  line.qtyFromBorrow === 0 &&
-                  line.qtyShort === 0 && (
-                    <span className="text-xs text-slate-400">
-                      Not yet resolved.
-                    </span>
-                  )}
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-
-      <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Totals across every line
-        </p>
-
-        <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
-          <span className="text-green-700">
-            <span className="font-semibold">{totals.own}</span> from own
-            quota
-          </span>
-          <span className="text-blue-700">
-            <span className="font-semibold">{totals.office}</span> from
-            office
-          </span>
-          <span className="text-yellow-800">
-            <span className="font-semibold">{totals.borrowed}</span> borrowed
-          </span>
-          <span className="text-red-700">
-            <span className="font-semibold">{totals.short}</span> short
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Task 6.2. Shown inside the issue modal so the store manager can see what
- * they are about to hand over — per-line quantity needed alongside current
- * stock — before confirming. Fetched lazily, only while the modal is open.
- */
-function IssuePreviewList({ requisitionId }: { requisitionId: string }) {
-  const { data, isLoading, isError, error } = useQuery({
-    queryKey: ["requisition-issue-preview", requisitionId],
-    queryFn: () => getIssuePreview(requisitionId),
-  });
-
-  if (isLoading) {
-    return (
-      <p className="text-sm text-slate-500">Loading components...</p>
-    );
-  }
-
-  if (isError) {
-    return <p className="text-sm text-red-600">{getErrorMessage(error)}</p>;
-  }
-
-  if (!data || data.lines.length === 0) {
-    return (
-      <p className="text-sm text-slate-500">
-        No components on this requisition.
-      </p>
-    );
-  }
-
-  return (
-    <div className="overflow-x-auto rounded-lg border border-slate-200">
+    <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
       <table className="min-w-full divide-y divide-slate-200">
         <thead className="bg-slate-50">
           <tr>
@@ -331,90 +127,24 @@ function IssuePreviewList({ requisitionId }: { requisitionId: string }) {
               Component
             </th>
             <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Qty to Issue
+              Needed
             </th>
             <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Current Stock
+              Own Quota
+            </th>
+            <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Office
+            </th>
+            <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Borrowed
+            </th>
+            <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Short
             </th>
           </tr>
         </thead>
 
-        <tbody className="divide-y divide-slate-100 bg-white">
-          {data.lines.map((line) => {
-            const insufficient = line.currentStock < line.qtyNeeded;
-
-            return (
-              <tr key={line.lineId}>
-                <td className="px-4 py-2 text-sm text-slate-700">
-                  <span className="font-medium text-slate-900">
-                    {line.componentCode}
-                  </span>{" "}
-                  — {line.componentName}
-                </td>
-                <td className="px-4 py-2 text-right text-sm text-slate-700">
-                  {line.qtyNeeded}
-                </td>
-                <td
-                  className={`px-4 py-2 text-right text-sm font-semibold ${
-                    insufficient ? "text-red-600" : "text-slate-700"
-                  }`}
-                >
-                  {line.currentStock}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-/**
- * Task 6.3. Shown inside the return modal — component identity and qtyIssued,
- * the max returnable, straight from the server. The editable good/damaged/
- * lost/used-up inputs still come from the requisition object already held by
- * the page (it already carries qtyIssued per line), but this lazily-fetched
- * panel is the same "confirm what you're recording" pattern as the issue
- * modal's IssuePreviewList.
- */
-function ReturnPreviewList({ requisitionId }: { requisitionId: string }) {
-  const { data, isLoading, isError, error } = useQuery({
-    queryKey: ["requisition-return-preview", requisitionId],
-    queryFn: () => getReturnPreview(requisitionId),
-  });
-
-  if (isLoading) {
-    return <p className="text-sm text-slate-500">Loading components...</p>;
-  }
-
-  if (isError) {
-    return <p className="text-sm text-red-600">{getErrorMessage(error)}</p>;
-  }
-
-  if (!data || data.lines.length === 0) {
-    return (
-      <p className="text-sm text-slate-500">
-        No issued components to return.
-      </p>
-    );
-  }
-
-  return (
-    <div className="overflow-x-auto rounded-lg border border-slate-200">
-      <table className="min-w-full divide-y divide-slate-200">
-        <thead className="bg-slate-50">
-          <tr>
-            <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Component
-            </th>
-            <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Qty Issued (max returnable)
-            </th>
-          </tr>
-        </thead>
-
-        <tbody className="divide-y divide-slate-100 bg-white">
+        <tbody className="divide-y divide-slate-100">
           {data.lines.map((line) => (
             <tr key={line.lineId}>
               <td className="px-4 py-2 text-sm text-slate-700">
@@ -423,8 +153,24 @@ function ReturnPreviewList({ requisitionId }: { requisitionId: string }) {
                 </span>{" "}
                 — {line.componentName}
               </td>
-              <td className="px-4 py-2 text-right text-sm font-semibold text-slate-700">
-                {line.qtyIssued}
+              <td className="px-4 py-2 text-right text-sm text-slate-700">
+                {line.qtyNeeded}
+              </td>
+              <td className="px-4 py-2 text-right text-sm text-slate-700">
+                {line.qtyFromOwn}
+              </td>
+              <td className="px-4 py-2 text-right text-sm text-slate-700">
+                {line.qtyFromOffice}
+              </td>
+              <td className="px-4 py-2 text-right text-sm text-slate-700">
+                {line.qtyFromBorrow}
+              </td>
+              <td
+                className={`px-4 py-2 text-right text-sm font-semibold ${
+                  line.qtyShort > 0 ? "text-amber-700" : "text-slate-700"
+                }`}
+              >
+                {line.qtyShort}
               </td>
             </tr>
           ))}
@@ -447,32 +193,14 @@ export default function Requisitions() {
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  // The wizard's session path only exists for roles that can raise CLASS
-  // (LAB_ASSISTANT, SYSTEM_ADMIN — mirrors POST /sessions/:id/draft-requisition's
-  // own requireRole guard); everyone else only ever sees the manual form.
-  const manualAllowedTypes = allowedTypes.filter((type) => type !== "CLASS");
-  const canUseSessionWizard = allowedTypes.includes("CLASS");
-
   const [isFormOpen, setIsFormOpen] = useState(false);
-  const [wizardMode, setWizardMode] = useState<"session" | "manual">(
-    "session",
-  );
-
   const [formType, setFormType] = useState<RequisitionType>(
-    manualAllowedTypes[0] ?? "PERSONAL",
+    allowedTypes[0] ?? "PERSONAL",
   );
+  const [formSessionId, setFormSessionId] = useState("");
   const [formFrom, setFormFrom] = useState("");
   const [formTo, setFormTo] = useState("");
   const [formError, setFormError] = useState("");
-
-  // Task 6.1 — the 3-step "from a class session" wizard.
-  const [sessionWizardStep, setSessionWizardStep] = useState<1 | 2 | 3>(1);
-  const [selectedSessionId, setSelectedSessionId] = useState("");
-  const [wizardDraft, setWizardDraft] = useState<Requisition | null>(null);
-  const [wizardSubmitted, setWizardSubmitted] = useState<Requisition | null>(
-    null,
-  );
-  const [wizardError, setWizardError] = useState("");
 
   const [newLineComponentId, setNewLineComponentId] = useState("");
   const [newLineQty, setNewLineQty] = useState("1");
@@ -480,13 +208,7 @@ export default function Requisitions() {
   const [lineError, setLineError] = useState("");
 
   const [actionError, setActionError] = useState("");
-  const [issueSuccessMessage, setIssueSuccessMessage] = useState("");
 
-  const [issueRequisitionTarget, setIssueRequisitionTarget] =
-    useState<Requisition | null>(null);
-  const [issueError, setIssueError] = useState("");
-
-  const [returnSuccessMessage, setReturnSuccessMessage] = useState("");
   const [returnRequisitionTarget, setReturnRequisitionTarget] =
     useState<Requisition | null>(null);
   const [returnDrafts, setReturnDrafts] = useState<
@@ -512,65 +234,15 @@ export default function Requisitions() {
     queryFn: () => getComponents({ limit: 100 }),
   });
 
-  // Step 1 — upcoming, not-yet-scheduled-for-a-requisition sessions. A
-  // session with no experiment assigned can't be drafted at all
-  // (draftRequisitionForSession would just throw), so those are filtered
-  // out client-side rather than offered as a dead-end option.
-  const { data: wizardSessionsData, isLoading: isWizardSessionsLoading } =
-    useQuery({
-      queryKey: ["sessions", "wizard-upcoming"],
-      queryFn: () => getSessions({ status: "SCHEDULED", limit: 100 }),
-      enabled: isFormOpen && wizardMode === "session" && sessionWizardStep === 1,
-    });
-
-  const wizardSessions = (wizardSessionsData?.data ?? []).filter(
-    (session) => session.experiment !== null,
-  );
-
-  const selectedSession =
-    wizardSessions.find((session) => session.id === selectedSessionId) ??
-    null;
-
-  // Step 2 — fetched only to reproduce the "students ÷ group size × 1.1"
-  // calculation for display; the authoritative qtyNeeded per line already
-  // comes back on wizardDraft itself from draftRequisitionForSession.
-  const { data: wizardExperiment } = useQuery({
-    queryKey: ["experiment", selectedSession?.experiment?.id],
-    queryFn: () => getExperiment(selectedSession!.experiment!.id),
-    enabled: sessionWizardStep === 2 && Boolean(selectedSession?.experiment),
-  });
-
-  const { data: wizardLab } = useQuery({
-    queryKey: ["lab", selectedSession?.routineSlot.lab.id],
-    queryFn: () => getLab(selectedSession!.routineSlot.lab.id),
-    enabled: sessionWizardStep === 2 && Boolean(selectedSession),
-  });
-
-  const wizardGroupSize = wizardLab?.groupSize;
-  const wizardGroups =
-    selectedSession && wizardGroupSize
-      ? Math.ceil(
-          selectedSession.routineSlot.section.studentCount / wizardGroupSize,
-        )
-      : null;
-
-  function qtyPerGroupFor(componentId: string): number | null {
-    const item = wizardExperiment?.items.find(
-      (candidate) => candidate.componentId === componentId,
-    );
-
-    return item ? item.qtyPerGroup : null;
-  }
-
-  // Step 3 — the same breakdown ResolutionBreakdownPanel shows elsewhere,
-  // fetched directly here so the wizard can color-code it per the brief.
-  const { data: wizardResolution } = useQuery({
-    queryKey: ["requisition-resolution", wizardSubmitted?.id],
-    queryFn: () => getRequisitionResolution(wizardSubmitted!.id),
-    enabled: sessionWizardStep === 3 && Boolean(wizardSubmitted),
+  // Only needed for class requisitions, so only fetched when one is being built.
+  const { data: sessionsData } = useQuery({
+    queryKey: ["sessions", "for-requisition"],
+    queryFn: () => getSessions({ limit: 100 }),
+    enabled: isFormOpen && formType === "CLASS",
   });
 
   const components = componentsData?.data ?? [];
+  const sessions = sessionsData?.data ?? [];
 
   async function refresh() {
     await queryClient.invalidateQueries({ queryKey: ["requisitions"] });
@@ -598,36 +270,6 @@ export default function Requisitions() {
     },
     onError: (mutationError: unknown) => {
       setActionError(getErrorMessage(mutationError));
-    },
-  });
-
-  // Task 6.1 wizard step 1 -> 2: auto-creates the draft from the picked
-  // session. Kept separate from createMutation since its success handler
-  // advances a wizard step instead of closing the modal.
-  const draftMutation = useMutation({
-    mutationFn: draftRequisitionForSession,
-    onSuccess: (created) => {
-      setWizardError("");
-      setWizardDraft(created);
-      setSessionWizardStep(2);
-    },
-    onError: (mutationError: unknown) => {
-      setWizardError(getErrorMessage(mutationError));
-    },
-  });
-
-  // Wizard step 2 -> 3. Separate from the main list's submitMutation below
-  // since this one needs the resolved requisition to advance the wizard,
-  // not just to refresh the background list.
-  const submitWizardMutation = useMutation({
-    mutationFn: submitRequisition,
-    onSuccess: (result) => {
-      setWizardError("");
-      setWizardSubmitted(result);
-      setSessionWizardStep(3);
-    },
-    onError: (mutationError: unknown) => {
-      setWizardError(getErrorMessage(mutationError));
     },
   });
 
@@ -707,14 +349,11 @@ export default function Requisitions() {
   const issueMutation = useMutation({
     mutationFn: issueRequisition,
     onSuccess: async () => {
-      setIssueSuccessMessage(
-        "Requisition issued — components handed over and stock updated.",
-      );
-      closeIssueModal();
+      setActionError("");
       await refresh();
     },
     onError: (mutationError: unknown) => {
-      setIssueError(getErrorMessage(mutationError));
+      setActionError(getErrorMessage(mutationError));
     },
   });
 
@@ -727,11 +366,8 @@ export default function Requisitions() {
       items: ReturnRequisitionItemInput[];
     }) => returnRequisition(requisitionId, { items }),
     onSuccess: async () => {
-      setReturnSuccessMessage(
-        "Return recorded — good stock restored, losses logged.",
-      );
-      closeReturnModal();
       await refresh();
+      closeReturnModal();
     },
     onError: (mutationError: unknown) => {
       setReturnError(getErrorMessage(mutationError));
@@ -750,85 +386,17 @@ export default function Requisitions() {
   }
 
   function openForm() {
-    setWizardMode(canUseSessionWizard ? "session" : "manual");
-    setSessionWizardStep(1);
-    setSelectedSessionId("");
-    setWizardDraft(null);
-    setWizardSubmitted(null);
-    setWizardError("");
-    setFormType(manualAllowedTypes[0] ?? "PERSONAL");
+    setFormType(allowedTypes[0] ?? "PERSONAL");
+    setFormSessionId("");
     setFormFrom("");
     setFormTo("");
     setFormError("");
     setIsFormOpen(true);
   }
 
-  /**
-   * Task 6.1. A session's draft already has its lines (draftRequisitionForSession
-   * creates them in the same call), so backing out of the wizard — or
-   * closing it — after step 2 would otherwise leave a real, empty-of-purpose
-   * DRAFT sitting in the list forever. Deleting it is safe: it is always
-   * still a DRAFT owned by the current actor at this point, exactly what
-   * DELETE /requisitions/:id requires. Best-effort — if it fails, it's just
-   * an ordinary DRAFT someone can delete later, not a stuck state.
-   */
-  function discardWizardDraftIfAny() {
-    if (wizardDraft && !wizardSubmitted) {
-      deleteRequisition(wizardDraft.id).catch(() => undefined);
-    }
-  }
-
   function closeForm() {
-    discardWizardDraftIfAny();
     setIsFormOpen(false);
     setFormError("");
-    setWizardDraft(null);
-    setWizardSubmitted(null);
-    setWizardError("");
-  }
-
-  function switchWizardMode(mode: "session" | "manual") {
-    discardWizardDraftIfAny();
-    setWizardMode(mode);
-    setSessionWizardStep(1);
-    setSelectedSessionId("");
-    setWizardDraft(null);
-    setWizardSubmitted(null);
-    setWizardError("");
-  }
-
-  function handleWizardNext() {
-    if (!selectedSessionId) {
-      setWizardError("Pick a session to continue.");
-      return;
-    }
-
-    setWizardError("");
-    draftMutation.mutate(selectedSessionId);
-  }
-
-  function handleWizardBack() {
-    discardWizardDraftIfAny();
-    setWizardDraft(null);
-    setWizardError("");
-    setSessionWizardStep(1);
-  }
-
-  function handleWizardSubmit() {
-    if (!wizardDraft) {
-      return;
-    }
-
-    setWizardError("");
-    submitWizardMutation.mutate(wizardDraft.id);
-  }
-
-  async function handleWizardDone() {
-    setIsFormOpen(false);
-    setWizardDraft(null);
-    setWizardSubmitted(null);
-    setWizardError("");
-    await refresh();
   }
 
   function toggleExpanded(id: string) {
@@ -842,6 +410,16 @@ export default function Requisitions() {
   function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError("");
+
+    if (formType === "CLASS") {
+      if (!formSessionId) {
+        setFormError("Pick a class session.");
+        return;
+      }
+
+      createMutation.mutate({ type: "CLASS", classSessionId: formSessionId });
+      return;
+    }
 
     if (!formFrom || !formTo) {
       setFormError("Both a start and an end time are required.");
@@ -908,24 +486,17 @@ export default function Requisitions() {
     submitMutation.mutate(requisition.id);
   }
 
-  function openIssueModal(requisition: Requisition) {
-    setIssueError("");
-    setIssueSuccessMessage("");
-    setIssueRequisitionTarget(requisition);
-  }
+  function handleIssue(requisition: Requisition) {
+    const confirmed = window.confirm(
+      "Issue this requisition? Stock will be deducted immediately.",
+    );
 
-  function closeIssueModal() {
-    setIssueRequisitionTarget(null);
-    setIssueError("");
-  }
-
-  function handleConfirmIssue() {
-    if (!issueRequisitionTarget) {
+    if (!confirmed) {
       return;
     }
 
-    setIssueError("");
-    issueMutation.mutate(issueRequisitionTarget.id);
+    setActionError("");
+    issueMutation.mutate(requisition.id);
   }
 
   function openReturnModal(requisition: Requisition) {
@@ -946,7 +517,6 @@ export default function Requisitions() {
 
     setReturnDrafts(drafts);
     setReturnError("");
-    setReturnSuccessMessage("");
     setReturnRequisitionTarget(requisition);
   }
 
@@ -995,14 +565,13 @@ export default function Requisitions() {
       }
 
       const total = goodQty + damagedQty + lostQty + usedUpQty;
+      const outstanding =
+        line.qtyIssued -
+        (line.qtyReturnedGood + line.qtyDamaged + line.qtyLost + line.qtyUsedUp);
 
-      // The server requires every issued line's return to fully account for
-      // its qtyIssued in this one call (returnRequisition rejects any other
-      // sum with "Return quantity mismatch") — checked here too so the user
-      // sees it before submitting, not after a round trip.
-      if (line.qtyIssued > 0 && total !== line.qtyIssued) {
+      if (total > outstanding) {
         setReturnError(
-          `${line.component.code}: good + damaged + lost + used up must add up to the issued quantity (${line.qtyIssued}), not ${total}.`,
+          `${line.component.code}: returned quantity exceeds what is still outstanding (${outstanding}).`,
         );
         return;
       }
@@ -1114,42 +683,6 @@ export default function Requisitions() {
           className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"
         >
           {actionError}
-        </div>
-      )}
-
-      {issueSuccessMessage && (
-        <div
-          role="status"
-          className="flex items-center justify-between gap-3 rounded-lg bg-green-50 px-4 py-3 text-sm text-green-700"
-        >
-          <span>{issueSuccessMessage}</span>
-
-          <button
-            type="button"
-            onClick={() => setIssueSuccessMessage("")}
-            aria-label="Dismiss"
-            className="text-green-600 transition hover:text-green-800"
-          >
-            ×
-          </button>
-        </div>
-      )}
-
-      {returnSuccessMessage && (
-        <div
-          role="status"
-          className="flex items-center justify-between gap-3 rounded-lg bg-green-50 px-4 py-3 text-sm text-green-700"
-        >
-          <span>{returnSuccessMessage}</span>
-
-          <button
-            type="button"
-            onClick={() => setReturnSuccessMessage("")}
-            aria-label="Dismiss"
-            className="text-green-600 transition hover:text-green-800"
-          >
-            ×
-          </button>
         </div>
       )}
 
@@ -1294,7 +827,8 @@ export default function Requisitions() {
                             requisition.status === "READY" && (
                               <button
                                 type="button"
-                                onClick={() => openIssueModal(requisition)}
+                                onClick={() => handleIssue(requisition)}
+                                disabled={issueMutation.isPending}
                                 className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                               >
                                 Issue
@@ -1542,16 +1076,14 @@ export default function Requisitions() {
 
       {isFormOpen && canRaise && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
-          <div className="max-h-full w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-xl">
+          <div className="max-h-full w-full max-w-lg overflow-y-auto rounded-xl bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
               <div>
                 <h3 className="text-lg font-semibold text-slate-900">
                   New Requisition
                 </h3>
                 <p className="mt-1 text-sm text-slate-500">
-                  {wizardMode === "session"
-                    ? `Step ${sessionWizardStep} of 3 — from a scheduled class session.`
-                    : "Creates a draft. Add components to it afterwards."}
+                  Creates a draft. Add components to it afterwards.
                 </p>
               </div>
 
@@ -1565,317 +1097,63 @@ export default function Requisitions() {
               </button>
             </div>
 
-            {canUseSessionWizard && manualAllowedTypes.length > 0 && (
-              <div className="flex gap-2 border-b border-slate-200 px-6 pt-4">
-                <button
-                  type="button"
-                  onClick={() => switchWizardMode("session")}
-                  className={`rounded-t-lg px-3 py-2 text-sm font-medium transition ${
-                    wizardMode === "session"
-                      ? "border-b-2 border-slate-900 text-slate-900"
-                      : "text-slate-500 hover:text-slate-700"
-                  }`}
+            <form onSubmit={handleCreate} className="space-y-5 p-6">
+              <div>
+                <label
+                  htmlFor="req-type"
+                  className="mb-1 block text-sm font-medium text-slate-700"
                 >
-                  From Class Session
-                </button>
+                  Type
+                </label>
 
-                <button
-                  type="button"
-                  onClick={() => switchWizardMode("manual")}
-                  className={`rounded-t-lg px-3 py-2 text-sm font-medium transition ${
-                    wizardMode === "manual"
-                      ? "border-b-2 border-slate-900 text-slate-900"
-                      : "text-slate-500 hover:text-slate-700"
-                  }`}
+                <select
+                  id="req-type"
+                  value={formType}
+                  onChange={(event) =>
+                    setFormType(event.target.value as RequisitionType)
+                  }
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                 >
-                  Manual (Personal / Maintenance)
-                </button>
+                  {allowedTypes.map((type) => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
+                </select>
               </div>
-            )}
 
-            {wizardMode === "session" ? (
-              <div className="space-y-5 p-6">
-                {sessionWizardStep === 1 && (
-                  <>
-                    <div>
-                      <h4 className="mb-1 text-sm font-semibold text-slate-800">
-                        Pick a scheduled session
-                      </h4>
-                      <p className="text-sm text-slate-500">
-                        Only sessions with an experiment assigned can be
-                        drafted — assign one from Class Sessions first if
-                        yours is missing.
-                      </p>
-                    </div>
-
-                    {isWizardSessionsLoading ? (
-                      <p className="text-sm text-slate-500">
-                        Loading sessions...
-                      </p>
-                    ) : wizardSessions.length === 0 ? (
-                      <p className="text-sm text-slate-500">
-                        No upcoming sessions with an experiment assigned.
-                      </p>
-                    ) : (
-                      <ul className="max-h-72 divide-y divide-slate-200 overflow-y-auto rounded-lg border border-slate-200">
-                        {wizardSessions.map((session) => (
-                          <li key={session.id}>
-                            <label className="flex cursor-pointer items-start gap-3 px-4 py-3 hover:bg-slate-50">
-                              <input
-                                type="radio"
-                                name="wizard-session"
-                                checked={selectedSessionId === session.id}
-                                onChange={() =>
-                                  setSelectedSessionId(session.id)
-                                }
-                                className="mt-1"
-                              />
-
-                              <div className="text-sm text-slate-700">
-                                <span className="font-medium text-slate-900">
-                                  {session.date.slice(0, 10)}
-                                </span>{" "}
-                                · {session.routineSlot.startTime}–
-                                {session.routineSlot.endTime}
-                                <div>
-                                  {session.routineSlot.section.course.code}{" "}
-                                  Section {session.routineSlot.section.name} ·{" "}
-                                  {session.routineSlot.lab.name}
-                                </div>
-                                <div className="text-xs text-slate-500">
-                                  {session.experiment?.title}
-                                </div>
-                              </div>
-                            </label>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-
-                    {wizardError && (
-                      <div
-                        role="alert"
-                        className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"
-                      >
-                        {wizardError}
-                      </div>
-                    )}
-
-                    <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
-                      <button
-                        type="button"
-                        onClick={closeForm}
-                        className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-                      >
-                        Cancel
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={handleWizardNext}
-                        disabled={draftMutation.isPending || !selectedSessionId}
-                        className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {draftMutation.isPending ? "Creating draft..." : "Next"}
-                      </button>
-                    </div>
-                  </>
-                )}
-
-                {sessionWizardStep === 2 && wizardDraft && selectedSession && (
-                  <>
-                    <div>
-                      <h4 className="mb-1 text-sm font-semibold text-slate-800">
-                        Review draft
-                      </h4>
-                      <p className="text-sm text-slate-500">
-                        {selectedSession.routineSlot.section.course.code}{" "}
-                        Section {selectedSession.routineSlot.section.name} ·{" "}
-                        {selectedSession.experiment?.title}
-                      </p>
-
-                      {wizardGroups !== null && (
-                        <p className="mt-2 text-xs text-slate-500">
-                          {selectedSession.routineSlot.section.studentCount}{" "}
-                          students ÷ {wizardGroupSize} per group ={" "}
-                          {wizardGroups} group{wizardGroups === 1 ? "" : "s"}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="overflow-x-auto rounded-lg border border-slate-200">
-                      <table className="min-w-full divide-y divide-slate-200">
-                        <thead className="bg-slate-50">
-                          <tr>
-                            <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                              Component
-                            </th>
-                            <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                              Calculation
-                            </th>
-                            <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
-                              Qty Needed
-                            </th>
-                          </tr>
-                        </thead>
-
-                        <tbody className="divide-y divide-slate-100 bg-white">
-                          {wizardDraft.lines.map((line) => {
-                            const qtyPerGroup = qtyPerGroupFor(
-                              line.componentId,
-                            );
-
-                            return (
-                              <tr key={line.id}>
-                                <td className="px-4 py-2 text-sm text-slate-700">
-                                  <span className="font-medium text-slate-900">
-                                    {line.component.code}
-                                  </span>{" "}
-                                  — {line.component.name}
-                                </td>
-                                <td className="px-4 py-2 text-xs text-slate-500">
-                                  {qtyPerGroup !== null && wizardGroups
-                                    ? `${qtyPerGroup} × ${wizardGroups} × 1.1`
-                                    : "—"}
-                                </td>
-                                <td className="px-4 py-2 text-right text-sm font-semibold text-slate-900">
-                                  {line.qtyNeeded} {line.component.unit}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    {wizardError && (
-                      <div
-                        role="alert"
-                        className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"
-                      >
-                        {wizardError}
-                      </div>
-                    )}
-
-                    <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
-                      <button
-                        type="button"
-                        onClick={handleWizardBack}
-                        className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-                      >
-                        Back
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={handleWizardSubmit}
-                        disabled={submitWizardMutation.isPending}
-                        className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {submitWizardMutation.isPending
-                          ? "Submitting..."
-                          : "Submit"}
-                      </button>
-                    </div>
-                  </>
-                )}
-
-                {sessionWizardStep === 3 && wizardSubmitted && (
-                  <>
-                    <div>
-                      <h4 className="mb-1 text-sm font-semibold text-slate-800">
-                        Resolution
-                      </h4>
-                      <p className="text-sm text-slate-500">
-                        Status:{" "}
-                        <span className="font-medium text-slate-900">
-                          {wizardSubmitted.status.replace(/_/g, " ")}
-                        </span>
-                      </p>
-                    </div>
-
-                    {!wizardResolution ? (
-                      <p className="text-sm text-slate-500">
-                        Loading resolution...
-                      </p>
-                    ) : (
-                      <ul className="space-y-3">
-                        {wizardResolution.lines.map((line) => (
-                          <li
-                            key={line.lineId}
-                            className="rounded-lg border border-slate-200 p-4"
-                          >
-                            <p className="mb-2 text-sm font-medium text-slate-900">
-                              {line.componentCode} — {line.componentName}{" "}
-                              <span className="font-normal text-slate-500">
-                                (needed {line.qtyNeeded})
-                              </span>
-                            </p>
-
-                            <div className="flex flex-wrap gap-2">
-                              <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-700">
-                                Own quota: {line.qtyFromOwn}
-                              </span>
-                              <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">
-                                Office: {line.qtyFromOffice}
-                              </span>
-                              <span className="inline-flex items-center rounded-full bg-yellow-100 px-2.5 py-1 text-xs font-semibold text-yellow-800">
-                                Borrowed: {line.qtyFromBorrow}
-                              </span>
-                              <span className="inline-flex items-center rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-700">
-                                Short: {line.qtyShort}
-                              </span>
-                            </div>
-
-                            {line.qtyShort > 0 && (
-                              <p className="mt-2 text-xs text-slate-500">
-                                Still short — a purchase request has been
-                                raised for the remainder.
-                              </p>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-
-                    <div className="flex justify-end border-t border-slate-100 pt-4">
-                      <button
-                        type="button"
-                        onClick={handleWizardDone}
-                        className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700"
-                      >
-                        Done
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            ) : (
-              <form onSubmit={handleCreate} className="space-y-5 p-6">
+              {formType === "CLASS" ? (
                 <div>
                   <label
-                    htmlFor="req-type"
+                    htmlFor="req-session"
                     className="mb-1 block text-sm font-medium text-slate-700"
                   >
-                    Type
+                    Class Session
                   </label>
 
                   <select
-                    id="req-type"
-                    value={formType}
-                    onChange={(event) =>
-                      setFormType(event.target.value as RequisitionType)
-                    }
+                    id="req-session"
+                    value={formSessionId}
+                    onChange={(event) => setFormSessionId(event.target.value)}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                   >
-                    {manualAllowedTypes.map((type) => (
-                      <option key={type} value={type}>
-                        {type}
+                    <option value="">Select a session</option>
+                    {sessions.map((session) => (
+                      <option key={session.id} value={session.id}>
+                        {session.date.slice(0, 10)} ·{" "}
+                        {session.routineSlot.section.course.code} Section{" "}
+                        {session.routineSlot.section.name} ·{" "}
+                        {session.routineSlot.startTime}
                       </option>
                     ))}
                   </select>
-                </div>
 
+                  <p className="mt-2 text-xs text-slate-500">
+                    The time window is taken from the session, so it always
+                    matches the class exactly.
+                  </p>
+                </div>
+              ) : (
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
                     <label
@@ -1911,122 +1189,35 @@ export default function Requisitions() {
                     />
                   </div>
                 </div>
+              )}
 
-                {formError && (
-                  <div
-                    role="alert"
-                    className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"
-                  >
-                    {formError}
-                  </div>
-                )}
-
-                <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
-                  <button
-                    type="button"
-                    onClick={closeForm}
-                    className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-                  >
-                    Cancel
-                  </button>
-
-                  <button
-                    type="submit"
-                    disabled={createMutation.isPending}
-                    className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {createMutation.isPending ? "Creating..." : "Create Draft"}
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-        </div>
-      )}
-
-      {issueRequisitionTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
-          <div className="max-h-full w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900">
-                  Issue Requisition
-                </h3>
-                <p className="mt-1 text-sm text-slate-500">
-                  Review the components below before handing them over.
-                  Stock is deducted as soon as you confirm.
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={closeIssueModal}
-                className="text-2xl leading-none text-slate-400 transition hover:text-slate-700"
-                aria-label="Close issue form"
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="space-y-5 p-6">
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-                <p>
-                  <span className="font-medium text-slate-900">
-                    {issueRequisitionTarget.type}
-                  </span>{" "}
-                  · {issueRequisitionTarget.department.code}
-                  {issueRequisitionTarget.classSession && (
-                    <>
-                      {" "}
-                      ·{" "}
-                      {
-                        issueRequisitionTarget.classSession.routineSlot
-                          .section.course.code
-                      }{" "}
-                      Section{" "}
-                      {
-                        issueRequisitionTarget.classSession.routineSlot
-                          .section.name
-                      }
-                    </>
-                  )}
-                </p>
-                <p className="mt-1 text-xs text-slate-500">
-                  {formatMoment(issueRequisitionTarget.neededFrom)} to{" "}
-                  {formatMoment(issueRequisitionTarget.neededTo)}
-                </p>
-              </div>
-
-              <IssuePreviewList requisitionId={issueRequisitionTarget.id} />
-
-              {issueError && (
+              {formError && (
                 <div
                   role="alert"
                   className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"
                 >
-                  {issueError}
+                  {formError}
                 </div>
               )}
 
               <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
                 <button
                   type="button"
-                  onClick={closeIssueModal}
+                  onClick={closeForm}
                   className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
                 >
                   Cancel
                 </button>
 
                 <button
-                  type="button"
-                  onClick={handleConfirmIssue}
-                  disabled={issueMutation.isPending}
+                  type="submit"
+                  disabled={createMutation.isPending}
                   className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {issueMutation.isPending ? "Issuing..." : "Confirm Issue"}
+                  {createMutation.isPending ? "Creating..." : "Create Draft"}
                 </button>
               </div>
-            </div>
+            </form>
           </div>
         </div>
       )}
@@ -2057,8 +1248,6 @@ export default function Requisitions() {
             </div>
 
             <form onSubmit={handleReturnSubmit} className="space-y-5 p-6">
-              <ReturnPreviewList requisitionId={returnRequisitionTarget.id} />
-
               <div className="overflow-x-auto rounded-lg border border-slate-200">
                 <table className="min-w-full divide-y divide-slate-200">
                   <thead className="bg-slate-50">

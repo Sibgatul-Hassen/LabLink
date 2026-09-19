@@ -376,31 +376,6 @@ router.get(
 
 // ─────────────── issue & return ───────────────
 
-router.get(
-  "/requisitions/:id/issue-preview",
-  requireAuth,
-  requireRole("CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
-  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const actor = actorFrom(req);
-
-      if (!actor) {
-        res.status(401).json({ error: "Not authenticated" });
-        return;
-      }
-
-      const preview = await RequisitionService.getIssuePreview(
-        req.params.id,
-        actor,
-      );
-
-      res.status(200).json({ data: preview });
-    } catch (error) {
-      handleRequisitionError(error, res);
-    }
-  },
-);
-
 router.post(
   "/requisitions/:id/issue",
   requireAuth,
@@ -420,31 +395,6 @@ router.post(
       );
 
       res.status(200).json({ data: requisition });
-    } catch (error) {
-      handleRequisitionError(error, res);
-    }
-  },
-);
-
-router.get(
-  "/requisitions/:id/return-preview",
-  requireAuth,
-  requireRole("CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
-  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const actor = actorFrom(req);
-
-      if (!actor) {
-        res.status(401).json({ error: "Not authenticated" });
-        return;
-      }
-
-      const preview = await RequisitionService.getReturnPreview(
-        req.params.id,
-        actor,
-      );
-
-      res.status(200).json({ data: preview });
     } catch (error) {
       handleRequisitionError(error, res);
     }
