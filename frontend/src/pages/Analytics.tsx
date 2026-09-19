@@ -20,7 +20,7 @@ function canViewAnalytics(role: Role | undefined): boolean {
   );
 }
 
-// ΓöÇΓöÇΓöÇ shortage bar ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── shortage bar ─────────────────────────────────────────────────────────────
 
 function ShortageBar({
   item,
@@ -63,7 +63,7 @@ function ShortageBar({
   );
 }
 
-// ΓöÇΓöÇΓöÇ skeleton ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── skeleton ────────────────────────────────────────────────────────────────
 
 function SkeletonRow() {
   return (
@@ -75,7 +75,7 @@ function SkeletonRow() {
   );
 }
 
-// ΓöÇΓöÇΓöÇ summary card ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── summary card ─────────────────────────────────────────────────────────────
 
 function SummaryCard({
   label,
@@ -99,7 +99,7 @@ function SummaryCard({
   );
 }
 
-// ΓöÇΓöÇΓöÇ lending network view ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── lending network view ────────────────────────────────────────────────────
 
 const DEPT_COLOURS = [
   "bg-blue-500",
@@ -147,7 +147,7 @@ function LendingNetworkView({
   if (edges.length === 0) {
     return (
       <div className="flex flex-col items-center py-16 text-slate-400">
-        <span className="mb-2 text-4xl">≡ƒñ¥</span>
+        <span className="mb-2 text-4xl">🤝</span>
         <p className="text-sm font-medium">No lending activity yet</p>
         <p className="mt-1 text-xs">
           Completed cross-department borrows will appear here.
@@ -192,7 +192,7 @@ function LendingNetworkView({
         ))}
       </div>
 
-      {/* Edge list ΓÇö flow diagram style */}
+      {/* Edge list — flow diagram style */}
       <div className="space-y-3">
         {edges.map((edge, idx) => {
           const pct =
@@ -310,7 +310,7 @@ function LendingNetworkView({
                   <td className="px-4 py-3 text-right text-sm text-slate-500">
                     {edge.requestCount > 0
                       ? (edge.totalQtyBorrowed / edge.requestCount).toFixed(1)
-                      : "ΓÇö"}
+                      : "—"}
                   </td>
                 </tr>
               ))}
@@ -322,7 +322,7 @@ function LendingNetworkView({
   );
 }
 
-// ΓöÇΓöÇΓöÇ shortage frequency view ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── shortage frequency view ──────────────────────────────────────────────────
 
 const LIMIT_OPTIONS = [10, 20, 30, 50];
 
@@ -363,7 +363,7 @@ function ShortageFrequencyView() {
           />
           <SummaryCard
             label="Most problematic"
-            value={worstComponent?.componentCode ?? "ΓÇö"}
+            value={worstComponent?.componentCode ?? "—"}
             sub={`${worstComponent?.shortageCount ?? 0} shortage events`}
             colour="bg-purple-50 border-purple-200 text-purple-900"
           />
@@ -425,7 +425,7 @@ function ShortageFrequencyView() {
           )}
           {!isLoading && !isError && items.length === 0 && (
             <div className="flex flex-col items-center py-16 text-slate-400">
-              <span className="mb-2 text-4xl">≡ƒôè</span>
+              <span className="mb-2 text-4xl">📊</span>
               <p className="text-sm font-medium">No shortage data yet</p>
               <p className="mt-1 text-xs">
                 Shortages appear here once requisitions have been resolved.
@@ -504,7 +504,7 @@ function ShortageFrequencyView() {
   );
 }
 
-// ΓöÇΓöÇΓöÇ damage and loss view ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── damage and loss view ──────────────────────────────────────────────────
 
 function DamageLossView() {
   const { data, isLoading, isError } = useQuery({
@@ -538,7 +538,7 @@ function DamageLossView() {
   if (items.length === 0) {
     return (
       <div className="rounded-xl border border-slate-200 bg-white p-12 text-center shadow-sm">
-        <span className="text-4xl">≡ƒÄë</span>
+        <span className="text-4xl">🎉</span>
         <h3 className="mt-4 text-lg font-semibold text-slate-900">
           No damages or losses recorded
         </h3>
@@ -580,20 +580,20 @@ function DamageLossView() {
                 >
                   <td className="px-6 py-4">
                     <div className="font-medium text-slate-900">
-                      {item.courseCode} ΓÇö {item.sectionName}
+                      {item.courseCode} — {item.sectionName}
                     </div>
                   </td>
                   <td className="px-6 py-4 text-sm text-slate-600">
-                    <div>{item.instructorName ?? "ΓÇö"}</div>
+                    <div>{item.instructorName ?? "—"}</div>
                     <div className="text-xs text-slate-400">
-                      Assistant: {item.labAssistantName ?? "ΓÇö"}
+                      Assistant: {item.labAssistantName ?? "—"}
                     </div>
                   </td>
                   <td className="px-6 py-4 text-right text-sm font-medium text-amber-600">
-                    {item.totalQtyDamaged > 0 ? item.totalQtyDamaged : "ΓÇö"}
+                    {item.totalQtyDamaged > 0 ? item.totalQtyDamaged : "—"}
                   </td>
                   <td className="px-6 py-4 text-right text-sm font-medium text-red-600">
-                    {item.totalQtyLost > 0 ? item.totalQtyLost : "ΓÇö"}
+                    {item.totalQtyLost > 0 ? item.totalQtyLost : "—"}
                   </td>
                   <td className="px-6 py-4 text-right text-sm font-bold text-slate-900">
                     {total}
@@ -608,7 +608,7 @@ function DamageLossView() {
   );
 }
 
-// ΓöÇΓöÇΓöÇ main page ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── main page ───────────────────────────────────────────────────────────────
 
 type Tab = "shortage" | "lending" | "damage";
 
@@ -627,7 +627,7 @@ export default function Analytics() {
   if (!canViewAnalytics(user.role)) {
     return (
       <div className="flex flex-col items-center justify-center py-32 text-slate-500">
-        <span className="mb-3 text-5xl">≡ƒöÆ</span>
+        <span className="mb-3 text-5xl">🔒</span>
         <p className="text-lg font-semibold">Access Restricted</p>
         <p className="mt-1 text-sm">
           Analytics are available to store heads and office staff only.
@@ -659,7 +659,7 @@ export default function Analytics() {
               : "text-slate-500 hover:text-slate-700"
           }`}
         >
-          ≡ƒôè Shortage Frequency
+          📊 Shortage Frequency
         </button>
         <button
           id="tab-lending"
@@ -671,7 +671,7 @@ export default function Analytics() {
               : "text-slate-500 hover:text-slate-700"
           }`}
         >
-          ≡ƒñ¥ Lending Network
+          🤝 Lending Network
         </button>
         <button
           id="tab-damage"
@@ -683,7 +683,7 @@ export default function Analytics() {
               : "text-slate-500 hover:text-slate-700"
           }`}
         >
-          ΓÜá∩╕Å Damage & Loss
+          ⚠️ Damage & Loss
         </button>
       </div>
 
@@ -700,7 +700,7 @@ export default function Analytics() {
         <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="mb-6">
             <h2 className="text-base font-semibold text-slate-900">
-              Lending network ΓÇö who lends to whom
+              Lending network — who lends to whom
             </h2>
             <p className="mt-0.5 text-xs text-slate-400">
               Completed cross-department borrows (status: Handed Over or

@@ -18,7 +18,7 @@ export async function getPeakClasses(
   return response.data;
 }
 
-// ΓöÇΓöÇΓöÇ shortage frequency (task 6.8) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── damage and loss rates (task 6.10) ───────────────────────────────────────
 
 export interface ShortageFrequencyItem {
   componentId: string;
@@ -47,7 +47,7 @@ export async function getShortageFrequency(params?: {
   return response.data;
 }
 
-// ΓöÇΓöÇΓöÇ lending network (task 6.9) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── damage and loss rates (task 6.10) ───────────────────────────────────────
 
 export interface LendingNetworkNode {
   id: string;
@@ -79,7 +79,7 @@ export async function getLendingNetwork(params?: {
   return response.data;
 }
 
-// ΓöÇΓöÇΓöÇ damage and loss rates (task 6.10) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ─── damage and loss rates (task 6.10) ───────────────────────────────────────
 
 export interface DamageLossItem {
   sectionId: string;
