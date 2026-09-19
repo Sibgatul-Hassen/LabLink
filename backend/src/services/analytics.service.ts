@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+﻿import { Prisma } from "@prisma/client";
 
 import { prisma } from "../lib/prisma";
 import {
@@ -156,7 +156,7 @@ function summarise(session: PeakSession): PeakSessionSummary {
 export class AnalyticsService {
   /**
    * Feature 41. Answers "how many of this department's classes run at the same
-   * moment, at the worst point?" — the number the quota formula in proposal
+   * moment, at the worst point?" ΓÇö the number the quota formula in proposal
    * section 11.3 multiplies out.
    *
    * Works from dated sessions rather than routine slots on purpose: two slots

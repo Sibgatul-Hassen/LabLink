@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   getShortageFrequency,
@@ -20,7 +20,7 @@ function canViewAnalytics(role: Role | undefined): boolean {
   );
 }
 
-// ─── shortage bar ─────────────────────────────────────────────────────────────
+// ΓöÇΓöÇΓöÇ shortage bar ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 function ShortageBar({
   item,
@@ -54,7 +54,7 @@ function ShortageBar({
         </div>
       </div>
       <div className="w-36 flex-shrink-0 text-right text-sm">
-        <span className="font-bold text-slate-800">{item.shortageCount}×</span>
+        <span className="font-bold text-slate-800">{item.shortageCount}├ù</span>
         <span className="ml-2 text-xs text-slate-400">
           ({item.totalQtyShort} {item.unit} total)
         </span>
@@ -63,7 +63,7 @@ function ShortageBar({
   );
 }
 
-// ─── skeleton ────────────────────────────────────────────────────────────────
+// ΓöÇΓöÇΓöÇ skeleton ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 function SkeletonRow() {
   return (
@@ -75,7 +75,7 @@ function SkeletonRow() {
   );
 }
 
-// ─── summary card ─────────────────────────────────────────────────────────────
+// ΓöÇΓöÇΓöÇ summary card ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 function SummaryCard({
   label,
@@ -99,7 +99,7 @@ function SummaryCard({
   );
 }
 
-// ─── lending network view ────────────────────────────────────────────────────
+// ΓöÇΓöÇΓöÇ lending network view ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 const DEPT_COLOURS = [
   "bg-blue-500",
@@ -147,7 +147,7 @@ function LendingNetworkView({
   if (edges.length === 0) {
     return (
       <div className="flex flex-col items-center py-16 text-slate-400">
-        <span className="mb-2 text-4xl">🤝</span>
+        <span className="mb-2 text-4xl">≡ƒñ¥</span>
         <p className="text-sm font-medium">No lending activity yet</p>
         <p className="mt-1 text-xs">
           Completed cross-department borrows will appear here.
@@ -192,7 +192,7 @@ function LendingNetworkView({
         ))}
       </div>
 
-      {/* Edge list — flow diagram style */}
+      {/* Edge list ΓÇö flow diagram style */}
       <div className="space-y-3">
         {edges.map((edge, idx) => {
           const pct =
@@ -223,7 +223,7 @@ function LendingNetworkView({
               <div className="flex flex-1 flex-col gap-1">
                 <div className="flex items-center gap-2 text-xs text-slate-500">
                   <span>{edge.requestCount} request{edge.requestCount !== 1 ? "s" : ""}</span>
-                  <span>·</span>
+                  <span>┬╖</span>
                   <span>{edge.totalQtyBorrowed} units</span>
                 </div>
                 <div className="relative h-3 w-full overflow-hidden rounded-full bg-slate-100">
@@ -233,7 +233,7 @@ function LendingNetworkView({
                   />
                   {/* Arrow indicator */}
                   <span className="absolute right-0 top-0 flex h-3 w-5 items-center justify-center text-[8px] text-slate-500">
-                    ▶
+                    Γû╢
                   </span>
                 </div>
               </div>
@@ -310,7 +310,7 @@ function LendingNetworkView({
                   <td className="px-4 py-3 text-right text-sm text-slate-500">
                     {edge.requestCount > 0
                       ? (edge.totalQtyBorrowed / edge.requestCount).toFixed(1)
-                      : "—"}
+                      : "ΓÇö"}
                   </td>
                 </tr>
               ))}
@@ -322,7 +322,7 @@ function LendingNetworkView({
   );
 }
 
-// ─── shortage frequency view ──────────────────────────────────────────────────
+// ΓöÇΓöÇΓöÇ shortage frequency view ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 const LIMIT_OPTIONS = [10, 20, 30, 50];
 
@@ -363,7 +363,7 @@ function ShortageFrequencyView() {
           />
           <SummaryCard
             label="Most problematic"
-            value={worstComponent?.componentCode ?? "—"}
+            value={worstComponent?.componentCode ?? "ΓÇö"}
             sub={`${worstComponent?.shortageCount ?? 0} shortage events`}
             colour="bg-purple-50 border-purple-200 text-purple-900"
           />
@@ -407,11 +407,11 @@ function ShortageFrequencyView() {
           </span>
           <span className="flex items-center gap-1.5">
             <span className="h-3 w-3 rounded-sm bg-amber-500" />
-            3–4 events (high)
+            3ΓÇô4 events (high)
           </span>
           <span className="flex items-center gap-1.5">
             <span className="h-3 w-3 rounded-sm bg-blue-400" />
-            1–2 events (low)
+            1ΓÇô2 events (low)
           </span>
         </div>
 
@@ -425,7 +425,7 @@ function ShortageFrequencyView() {
           )}
           {!isLoading && !isError && items.length === 0 && (
             <div className="flex flex-col items-center py-16 text-slate-400">
-              <span className="mb-2 text-4xl">📊</span>
+              <span className="mb-2 text-4xl">≡ƒôè</span>
               <p className="text-sm font-medium">No shortage data yet</p>
               <p className="mt-1 text-xs">
                 Shortages appear here once requisitions have been resolved.
@@ -484,7 +484,7 @@ function ShortageFrequencyView() {
                               : "text-blue-600"
                         }`}
                       >
-                        {item.shortageCount}×
+                        {item.shortageCount}├ù
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right text-sm text-slate-700">
@@ -504,7 +504,7 @@ function ShortageFrequencyView() {
   );
 }
 
-// ─── damage and loss view ──────────────────────────────────────────────────
+// ΓöÇΓöÇΓöÇ damage and loss view ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 function DamageLossView() {
   const { data, isLoading, isError } = useQuery({
@@ -538,7 +538,7 @@ function DamageLossView() {
   if (items.length === 0) {
     return (
       <div className="rounded-xl border border-slate-200 bg-white p-12 text-center shadow-sm">
-        <span className="text-4xl">🎉</span>
+        <span className="text-4xl">≡ƒÄë</span>
         <h3 className="mt-4 text-lg font-semibold text-slate-900">
           No damages or losses recorded
         </h3>
@@ -580,20 +580,20 @@ function DamageLossView() {
                 >
                   <td className="px-6 py-4">
                     <div className="font-medium text-slate-900">
-                      {item.courseCode} — {item.sectionName}
+                      {item.courseCode} ΓÇö {item.sectionName}
                     </div>
                   </td>
                   <td className="px-6 py-4 text-sm text-slate-600">
-                    <div>{item.instructorName ?? "—"}</div>
+                    <div>{item.instructorName ?? "ΓÇö"}</div>
                     <div className="text-xs text-slate-400">
-                      Assistant: {item.labAssistantName ?? "—"}
+                      Assistant: {item.labAssistantName ?? "ΓÇö"}
                     </div>
                   </td>
                   <td className="px-6 py-4 text-right text-sm font-medium text-amber-600">
-                    {item.totalQtyDamaged > 0 ? item.totalQtyDamaged : "—"}
+                    {item.totalQtyDamaged > 0 ? item.totalQtyDamaged : "ΓÇö"}
                   </td>
                   <td className="px-6 py-4 text-right text-sm font-medium text-red-600">
-                    {item.totalQtyLost > 0 ? item.totalQtyLost : "—"}
+                    {item.totalQtyLost > 0 ? item.totalQtyLost : "ΓÇö"}
                   </td>
                   <td className="px-6 py-4 text-right text-sm font-bold text-slate-900">
                     {total}
@@ -608,7 +608,7 @@ function DamageLossView() {
   );
 }
 
-// ─── main page ───────────────────────────────────────────────────────────────
+// ΓöÇΓöÇΓöÇ main page ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 type Tab = "shortage" | "lending" | "damage";
 
@@ -627,7 +627,7 @@ export default function Analytics() {
   if (!canViewAnalytics(user.role)) {
     return (
       <div className="flex flex-col items-center justify-center py-32 text-slate-500">
-        <span className="mb-3 text-5xl">🔒</span>
+        <span className="mb-3 text-5xl">≡ƒöÆ</span>
         <p className="text-lg font-semibold">Access Restricted</p>
         <p className="mt-1 text-sm">
           Analytics are available to store heads and office staff only.
@@ -659,7 +659,7 @@ export default function Analytics() {
               : "text-slate-500 hover:text-slate-700"
           }`}
         >
-          📊 Shortage Frequency
+          ≡ƒôè Shortage Frequency
         </button>
         <button
           id="tab-lending"
@@ -671,7 +671,7 @@ export default function Analytics() {
               : "text-slate-500 hover:text-slate-700"
           }`}
         >
-          🤝 Lending Network
+          ≡ƒñ¥ Lending Network
         </button>
         <button
           id="tab-damage"
@@ -683,7 +683,7 @@ export default function Analytics() {
               : "text-slate-500 hover:text-slate-700"
           }`}
         >
-          ⚠️ Damage & Loss
+          ΓÜá∩╕Å Damage & Loss
         </button>
       </div>
 
@@ -700,7 +700,7 @@ export default function Analytics() {
         <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="mb-6">
             <h2 className="text-base font-semibold text-slate-900">
-              Lending network — who lends to whom
+              Lending network ΓÇö who lends to whom
             </h2>
             <p className="mt-0.5 text-xs text-slate-400">
               Completed cross-department borrows (status: Handed Over or

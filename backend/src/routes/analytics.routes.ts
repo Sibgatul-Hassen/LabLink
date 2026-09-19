@@ -1,4 +1,4 @@
-import { Router, Response } from "express";
+﻿import { Router, Response } from "express";
 import { ZodError } from "zod";
 
 import { requireAuth } from "../middleware/auth";
@@ -25,7 +25,7 @@ function handleAnalyticsError(error: unknown, res: Response): void {
   res.status(500).json({ error: "Internal server error" });
 }
 
-// Capacity planning, so the audience is the roles that size quotas — not
+// Capacity planning, so the audience is the roles that size quotas ΓÇö not
 // students or lab assistants. A department store head is scoped to their own
 // department per feature 5; the office-level roles see every department.
 router.get(
