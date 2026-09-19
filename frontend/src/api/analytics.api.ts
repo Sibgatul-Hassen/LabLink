@@ -1,4 +1,4 @@
-import { apiClient } from "./client";
+﻿import { apiClient } from "./client";
 import type { PeakClassesResponse } from "../types";
 
 interface GetPeakClassesParams {
@@ -18,7 +18,7 @@ export async function getPeakClasses(
   return response.data;
 }
 
-// ─── shortage frequency (task 6.8) ───────────────────────────────────────────
+// ΓöÇΓöÇΓöÇ shortage frequency (task 6.8) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 export interface ShortageFrequencyItem {
   componentId: string;
@@ -47,7 +47,7 @@ export async function getShortageFrequency(params?: {
   return response.data;
 }
 
-// ─── lending network (task 6.9) ───────────────────────────────────────────────
+// ΓöÇΓöÇΓöÇ lending network (task 6.9) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 export interface LendingNetworkNode {
   id: string;
@@ -74,6 +74,32 @@ export async function getLendingNetwork(params?: {
 }): Promise<LendingNetworkResponse> {
   const response = await apiClient.get<LendingNetworkResponse>(
     "/api/analytics/lending-network",
+    { params },
+  );
+  return response.data;
+}
+
+// ΓöÇΓöÇΓöÇ damage and loss rates (task 6.10) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+
+export interface DamageLossItem {
+  sectionId: string;
+  sectionName: string;
+  courseCode: string;
+  instructorName: string | null;
+  labAssistantName: string | null;
+  totalQtyDamaged: number;
+  totalQtyLost: number;
+}
+
+export interface DamageLossResponse {
+  data: DamageLossItem[];
+}
+
+export async function getDamageLossRates(params?: {
+  departmentId?: string;
+}): Promise<DamageLossResponse> {
+  const response = await apiClient.get<DamageLossResponse>(
+    "/api/analytics/damage-loss",
     { params },
   );
   return response.data;
