@@ -2,13 +2,11 @@ import { apiClient } from "./client";
 import type {
   CreateRequisitionLineInput,
   CreateRequisitionRequest,
-  IssuePreview,
   Requisition,
   RequisitionListResponse,
   RequisitionStatus,
   RequisitionType,
   ResolutionBreakdown,
-  ReturnPreview,
   ReturnRequisitionRequest,
   UpdateRequisitionRequest,
 } from "../types";
@@ -19,14 +17,6 @@ interface RequisitionResponse {
 
 interface ResolutionBreakdownResponse {
   data: ResolutionBreakdown;
-}
-
-interface IssuePreviewResponse {
-  data: IssuePreview;
-}
-
-interface ReturnPreviewResponse {
-  data: ReturnPreview;
 }
 
 interface GetRequisitionsParams {
@@ -142,40 +132,9 @@ export async function getRequisitionResolution(
   return response.data.data;
 }
 
-// Lives here despite the /api/sessions path (per the brief) since it
-// returns — and is conceptually about creating — a Requisition, matching
-// every other function in this file. Gated server-side to LAB_ASSISTANT
-// and SYSTEM_ADMIN (session.routes.ts), the same roles that can raise a
-// CLASS requisition by hand.
-export async function draftRequisitionForSession(
-  sessionId: string,
-): Promise<Requisition> {
-  const response = await apiClient.post<RequisitionResponse>(
-    `/api/sessions/${sessionId}/draft-requisition`,
-  );
-
-  return response.data.data;
-}
-
-export async function getIssuePreview(id: string): Promise<IssuePreview> {
-  const response = await apiClient.get<IssuePreviewResponse>(
-    `/api/requisitions/${id}/issue-preview`,
-  );
-
-  return response.data.data;
-}
-
 export async function issueRequisition(id: string): Promise<Requisition> {
   const response = await apiClient.post<RequisitionResponse>(
     `/api/requisitions/${id}/issue`,
-  );
-
-  return response.data.data;
-}
-
-export async function getReturnPreview(id: string): Promise<ReturnPreview> {
-  const response = await apiClient.get<ReturnPreviewResponse>(
-    `/api/requisitions/${id}/return-preview`,
   );
 
   return response.data.data;

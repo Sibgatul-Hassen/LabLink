@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../store/authStore";
 import type { Role } from "../types";
-import NotificationBell from "./NotificationBell";
 
 interface LayoutProps {
   children: ReactNode;
@@ -38,21 +37,11 @@ const PURCHASE_REQUESTS_LINK: SidebarLink = {
   to: "/purchase-requests",
 };
 
-const BORROW_REQUESTS_LINK: SidebarLink = {
-  label: "Borrow Requests",
-  to: "/borrow-requests",
-};
-
 const DEPARTMENTS_LINK: SidebarLink = {
   label: "Departments",
   to: "/departments",
 };
 const USERS_LINK: SidebarLink = { label: "Users", to: "/users" };
-
-const ANALYTICS_LINK: SidebarLink = {
-  label: "Analytics",
-  to: "/analytics",
-};
 
 // Explicit per-role link lists, never a rank — CENTRAL_STORE_OFFICER has
 // university-wide data scope but low approval authority, so ordering roles
@@ -65,33 +54,21 @@ const SIDEBAR_LINKS_BY_ROLE: Record<Role, SidebarLink[]> = {
     ...COMMON_LINKS,
     PEAK_CLASS_LOAD_LINK,
     PURCHASE_REQUESTS_LINK,
-    BORROW_REQUESTS_LINK,
-    ANALYTICS_LINK,
   ],
   CENTRAL_STORE_OFFICER: [
     ...COMMON_LINKS,
     PEAK_CLASS_LOAD_LINK,
     PURCHASE_REQUESTS_LINK,
-    BORROW_REQUESTS_LINK,
-    ANALYTICS_LINK,
   ],
-  OFFICE_ADMIN: [
-    ...COMMON_LINKS,
-    PEAK_CLASS_LOAD_LINK,
-    PURCHASE_REQUESTS_LINK,
-    ANALYTICS_LINK,
-  ],
+  OFFICE_ADMIN: [...COMMON_LINKS, PEAK_CLASS_LOAD_LINK, PURCHASE_REQUESTS_LINK],
   SYSTEM_ADMIN: [
     ...COMMON_LINKS,
     PEAK_CLASS_LOAD_LINK,
     PURCHASE_REQUESTS_LINK,
-    BORROW_REQUESTS_LINK,
-    ANALYTICS_LINK,
     DEPARTMENTS_LINK,
     USERS_LINK,
   ],
 };
-
 
 function getSidebarLinks(role: Role): SidebarLink[] {
   return SIDEBAR_LINKS_BY_ROLE[role] ?? COMMON_LINKS;
@@ -125,15 +102,13 @@ export default function Layout({ children }: LayoutProps) {
       <header className="flex h-16 items-center justify-between border-b bg-white px-6 shadow-sm">
         <h1 className="text-xl font-bold text-slate-900">LabLink</h1>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-4">
           <div className="hidden text-right sm:block">
             <p className="text-sm font-semibold text-slate-900">
               {user.fullName}
             </p>
             <p className="text-xs text-slate-500">{formatRole(user.role)}</p>
           </div>
-
-          <NotificationBell />
 
           <button
             type="button"
@@ -146,14 +121,14 @@ export default function Layout({ children }: LayoutProps) {
       </header>
 
       <div className="flex min-h-[calc(100vh-4rem)]">
-        <aside className="w-64 flex-shrink-0 border-r bg-slate-900 p-4 overflow-y-auto h-[calc(100vh-4rem)] sticky top-16">
-          <nav className="space-y-1">
+        <aside className="w-64 border-r bg-slate-900 p-4">
+          <nav className="space-y-2">
             {sidebarLinks.map((link) => (
               <NavLink
                 key={link.label}
                 to={link.to}
                 className={({ isActive }) =>
-                  `block rounded-md px-3 py-2 text-sm font-medium transition ${
+                  `block rounded-md px-4 py-3 text-sm font-medium transition ${
                     isActive
                       ? "bg-slate-700 text-white"
                       : "text-slate-300 hover:bg-slate-800 hover:text-white"
