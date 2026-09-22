@@ -15,8 +15,10 @@ import RoutineSlots from "./pages/RoutineSlots";
 import Experiments from "./pages/Experiments";
 import ClassSessions from "./pages/ClassSessions";
 import PeakClasses from "./pages/PeakClasses";
+import Analytics from "./pages/Analytics";
 import Requisitions from "./pages/Requisitions";
 import PurchaseRequests from "./pages/PurchaseRequests";
+import BorrowRequests from "./pages/BorrowRequests";
 import Users from "./pages/Users";
 
 export default function App() {
@@ -157,6 +159,17 @@ export default function App() {
       />
 
       <Route
+        path="/analytics"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <Analytics />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/requisitions"
         element={
           <ProtectedRoute>
@@ -173,6 +186,17 @@ export default function App() {
           <ProtectedRoute>
             <Layout>
               <PurchaseRequests />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/borrow-requests"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <BorrowRequests />
             </Layout>
           </ProtectedRoute>
         }

@@ -1,7 +1,11 @@
 import { Prisma } from "@prisma/client";
 
 import { prisma } from "../lib/prisma";
-import { PeakClassesQuery } from "../schemas/analytics.schema";
+import {
+  PeakClassesQuery,
+  ShortageFrequencyQuery,
+  LendingNetworkQuery,
+} from "../schemas/analytics.schema";
 
 const peakSessionInclude = {
   routineSlot: {
@@ -64,6 +68,42 @@ export interface PeakClassesResult {
   data: DepartmentPeak[];
   from: string | null;
   to: string | null;
+}
+
+export interface ShortageFrequencyItem {
+  componentId: string;
+  componentCode: string;
+  componentName: string;
+  category: string;
+  unit: string;
+  shortageCount: number;
+  totalQtyShort: number;
+  avgQtyShort: number;
+}
+
+export interface ShortageFrequencyResult {
+  data: ShortageFrequencyItem[];
+  total: number;
+}
+
+export interface LendingNetworkNode {
+  id: string;
+  code: string;
+  name: string;
+}
+
+export interface LendingNetworkEdge {
+  lenderDeptId: string;
+  lenderCode: string;
+  borrowerDeptId: string;
+  borrowerCode: string;
+  requestCount: number;
+  totalQtyBorrowed: number;
+}
+
+export interface LendingNetworkResult {
+  nodes: LendingNetworkNode[];
+  edges: LendingNetworkEdge[];
 }
 
 interface SweepEvent {
@@ -223,6 +263,136 @@ export class AnalyticsService {
       data,
       from: from ? from.toISOString().slice(0, 10) : null,
       to: to ? to.toISOString().slice(0, 10) : null,
+    };
+  }
+
+  static async shortageFrequency(
+    query: ShortageFrequencyQuery,
+  ): Promise<ShortageFrequencyResult> {
+    const where: Prisma.RequisitionLineWhereInput = {
+      qtyShort: { gt: 0 },
+    };
+
+    if (query.departmentId) {
+      where.requisition = {
+        departmentId: query.departmentId,
+      };
+    }
+
+    const grouped = await prisma.requisitionLine.groupBy({
+      by: ["componentId"],
+      where,
+      _count: { id: true },
+      _sum: { qtyShort: true },
+      _avg: { qtyShort: true },
+      orderBy: [{ _count: { id: "desc" } }, { _sum: { qtyShort: "desc" } }],
+      take: query.limit,
+    });
+
+    const totalGroups = await prisma.requisitionLine.groupBy({
+      by: ["componentId"],
+      where,
+    });
+
+    const total = totalGroups.length;
+
+    const componentIds = grouped.map((g) => g.componentId);
+    const components = await prisma.component.findMany({
+      where: { id: { in: componentIds } },
+      select: { id: true, code: true, name: true, category: true, unit: true },
+    });
+
+    const componentMap = new Map(components.map((c) => [c.id, c]));
+
+    const data: ShortageFrequencyItem[] = grouped.map((g) => {
+      const comp = componentMap.get(g.componentId)!;
+      return {
+        componentId: g.componentId,
+        componentCode: comp.code,
+        componentName: comp.name,
+        category: comp.category,
+        unit: comp.unit,
+        shortageCount: g._count.id,
+        totalQtyShort: Number(g._sum.qtyShort ?? 0),
+        avgQtyShort: Number(g._avg.qtyShort ?? 0),
+      };
+    });
+
+    return { data, total };
+  }
+  static async lendingNetwork(
+    query: LendingNetworkQuery,
+  ): Promise<LendingNetworkResult> {
+    const where: Prisma.BorrowRequestWhereInput = {
+      status: { in: ["HANDED_OVER", "RETURNED"] },
+    };
+
+    if (query.departmentId) {
+      where.OR = [
+        { lenderDeptId: query.departmentId },
+        { borrowerDeptId: query.departmentId },
+      ];
+    }
+
+    const borrows = await prisma.borrowRequest.findMany({
+      where,
+      include: {
+        lender: { select: { id: true, code: true, name: true } },
+        borrower: { select: { id: true, code: true, name: true } },
+        lines: { select: { qtyApproved: true } },
+      },
+    });
+
+    const nodesMap = new Map<string, LendingNetworkNode>();
+    const edgesMap = new Map<string, LendingNetworkEdge>();
+
+    for (const borrow of borrows) {
+      if (!nodesMap.has(borrow.lender.id)) {
+        nodesMap.set(borrow.lender.id, {
+          id: borrow.lender.id,
+          code: borrow.lender.code,
+          name: borrow.lender.name,
+        });
+      }
+      if (!nodesMap.has(borrow.borrower.id)) {
+        nodesMap.set(borrow.borrower.id, {
+          id: borrow.borrower.id,
+          code: borrow.borrower.code,
+          name: borrow.borrower.name,
+        });
+      }
+
+      const edgeKey = `${borrow.lender.id}-${borrow.borrower.id}`;
+      const totalQty = borrow.lines.reduce(
+        (sum, line) => sum + Number(line.qtyApproved ?? 0),
+        0
+      );
+
+      let edge = edgesMap.get(edgeKey);
+      if (!edge) {
+        edge = {
+          lenderDeptId: borrow.lender.id,
+          lenderCode: borrow.lender.code,
+          borrowerDeptId: borrow.borrower.id,
+          borrowerCode: borrow.borrower.code,
+          requestCount: 0,
+          totalQtyBorrowed: 0,
+        };
+        edgesMap.set(edgeKey, edge);
+      }
+      edge.requestCount += 1;
+      edge.totalQtyBorrowed += totalQty;
+    }
+
+    return {
+      nodes: Array.from(nodesMap.values()).sort((a, b) =>
+        a.code.localeCompare(b.code)
+      ),
+      edges: Array.from(edgesMap.values()).sort(
+        (a, b) =>
+          a.lenderCode.localeCompare(b.lenderCode) ||
+          a.borrowerCode.localeCompare(b.borrowerCode)
+      ),
     };
   }
 }
