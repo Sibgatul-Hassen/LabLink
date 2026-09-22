@@ -1,11 +1,10 @@
-﻿import { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 
 import { prisma } from "../lib/prisma";
 import {
   PeakClassesQuery,
   ShortageFrequencyQuery,
   LendingNetworkQuery,
-  DamageLossQuery,
 } from "../schemas/analytics.schema";
 
 const peakSessionInclude = {
@@ -107,20 +106,6 @@ export interface LendingNetworkResult {
   edges: LendingNetworkEdge[];
 }
 
-export interface DamageLossItem {
-  sectionId: string;
-  sectionName: string;
-  courseCode: string;
-  instructorName: string | null;
-  labAssistantName: string | null;
-  totalQtyDamaged: number;
-  totalQtyLost: number;
-}
-
-export interface DamageLossResult {
-  data: DamageLossItem[];
-}
-
 interface SweepEvent {
   time: number;
   delta: 1 | -1;
@@ -156,7 +141,7 @@ function summarise(session: PeakSession): PeakSessionSummary {
 export class AnalyticsService {
   /**
    * Feature 41. Answers "how many of this department's classes run at the same
-   * moment, at the worst point?" ΓÇö the number the quota formula in proposal
+   * moment, at the worst point?" — the number the quota formula in proposal
    * section 11.3 multiplies out.
    *
    * Works from dated sessions rather than routine slots on purpose: two slots
@@ -409,81 +394,5 @@ export class AnalyticsService {
           a.borrowerCode.localeCompare(b.borrowerCode)
       ),
     };
-  }
-
-  static async damageLossRates(
-    query: DamageLossQuery,
-  ): Promise<DamageLossResult> {
-    const where: Prisma.RequisitionLineWhereInput = {
-      OR: [{ qtyDamaged: { gt: 0 } }, { qtyLost: { gt: 0 } }],
-      requisition: {
-        classSessionId: { not: null },
-      },
-    };
-
-    if (query.departmentId) {
-      // Must use the Prisma object structure safely
-      where.requisition = {
-        classSessionId: { not: null },
-        departmentId: query.departmentId,
-      };
-    }
-
-    const lines = await prisma.requisitionLine.findMany({
-      where,
-      include: {
-        requisition: {
-          include: {
-            classSession: {
-              include: {
-                routineSlot: {
-                  include: {
-                    section: {
-                      include: {
-                        course: true,
-                        instructor: true,
-                        labAssistant: true,
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    });
-
-    const itemsMap = new Map<string, DamageLossItem>();
-
-    for (const line of lines) {
-      const section = line.requisition.classSession?.routineSlot.section;
-      if (!section) continue;
-
-      let item = itemsMap.get(section.id);
-      if (!item) {
-        item = {
-          sectionId: section.id,
-          sectionName: section.name,
-          courseCode: section.course.code,
-          instructorName: section.instructor?.fullName ?? null,
-          labAssistantName: section.labAssistant?.fullName ?? null,
-          totalQtyDamaged: 0,
-          totalQtyLost: 0,
-        };
-        itemsMap.set(section.id, item);
-      }
-
-      item.totalQtyDamaged += line.qtyDamaged;
-      item.totalQtyLost += line.qtyLost;
-    }
-
-    const data = Array.from(itemsMap.values()).sort(
-      (a, b) =>
-        b.totalQtyDamaged + b.totalQtyLost -
-        (a.totalQtyDamaged + a.totalQtyLost)
-    );
-
-    return { data };
   }
 }

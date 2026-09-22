@@ -1,7 +1,7 @@
-﻿import { z } from "zod";
+import { z } from "zod";
 
 // Omitting from/to considers every generated session. Narrowing to a single
-// week gives the same answer in practice, since the routine repeats weekly ΓÇö
+// week gives the same answer in practice, since the routine repeats weekly —
 // the range exists so a caller can ask about a specific stretch of term.
 export const peakClassesQuerySchema = z.object({
   departmentId: z.string().optional(),
@@ -23,9 +23,3 @@ export const lendingNetworkQuerySchema = z.object({
 });
 
 export type LendingNetworkQuery = z.infer<typeof lendingNetworkQuerySchema>;
-
-export const damageLossQuerySchema = z.object({
-  departmentId: z.string().optional(),
-});
-
-export type DamageLossQuery = z.infer<typeof damageLossQuerySchema>;
