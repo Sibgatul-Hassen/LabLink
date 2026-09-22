@@ -10,6 +10,7 @@ import {
   getComponents,
   getComponentSubstitutes,
   updateComponent,
+  downloadComponentsCsv,
 } from "../api/component.api";
 import { useAuthStore } from "../store/authStore";
 import type { Component, CreateComponentRequest } from "../types";
@@ -313,15 +314,29 @@ export default function Components() {
             View and manage LabLink inventory components.
           </p>
         </div>
-        {canManage && (
+        <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={openCreateForm}
-            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700"
+            onClick={() => {
+              downloadComponentsCsv({
+                search: search.trim() || undefined,
+                category: category.trim() || undefined,
+              }).catch(() => alert("Failed to download CSV"));
+            }}
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
           >
-            Add Component
+            Export CSV
           </button>
-        )}
+          {canManage && (
+            <button
+              type="button"
+              onClick={openCreateForm}
+              className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700"
+            >
+              Add Component
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="mb-6 grid gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-2">
