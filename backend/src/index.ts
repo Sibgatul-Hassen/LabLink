@@ -1,7 +1,6 @@
 import express from "express";
 import cors from "cors";
 import { env } from "./config/env";
-import { startBackgroundJobs } from "./jobs";
 import healthRouter from "./routes/health.routes";
 import authRouter from "./routes/auth.routes";
 import componentRouter from "./routes/component.routes";
@@ -48,5 +47,4 @@ app.use("/api", notificationRouter);
 
 app.listen(env.PORT, () => {
   console.log(`LabLink API listening on port ${env.PORT}`);
-  startBackgroundJobs();
 });
