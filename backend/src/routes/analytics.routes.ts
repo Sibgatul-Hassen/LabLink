@@ -7,6 +7,7 @@ import {
   peakClassesQuerySchema,
   shortageFrequencyQuerySchema,
   lendingNetworkQuerySchema,
+  damageLossQuerySchema,
 } from "../schemas/analytics.schema";
 import { AnalyticsService } from "../services/analytics.service";
 import { AuthenticatedRequest } from "../types";
@@ -133,6 +134,44 @@ router.get(
       }
 
       const result = await AnalyticsService.lendingNetwork(query);
+
+      res.status(200).json(result);
+    } catch (error) {
+      handleAnalyticsError(error, res);
+    }
+  },
+);
+
+router.get(
+  "/analytics/damage-loss",
+  requireAuth,
+  requireRole(
+    "DEPT_STORE_HEAD",
+    "CENTRAL_STORE_OFFICER",
+    "OFFICE_ADMIN",
+    "SYSTEM_ADMIN",
+  ),
+  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      if (!req.user) {
+        res.status(401).json({ error: "Not authenticated" });
+        return;
+      }
+
+      const query = damageLossQuerySchema.parse(req.query);
+
+      if (req.user.role === "DEPT_STORE_HEAD") {
+        if (!req.user.departmentId) {
+          res
+            .status(403)
+            .json({ error: "No department assigned to this account" });
+          return;
+        }
+
+        query.departmentId = req.user.departmentId;
+      }
+
+      const result = await AnalyticsService.damageLossRates(query);
 
       res.status(200).json(result);
     } catch (error) {

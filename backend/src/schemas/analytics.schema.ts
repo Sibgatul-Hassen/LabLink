@@ -23,3 +23,9 @@ export const lendingNetworkQuerySchema = z.object({
 });
 
 export type LendingNetworkQuery = z.infer<typeof lendingNetworkQuerySchema>;
+
+export const damageLossQuerySchema = z.object({
+  departmentId: z.string().optional(),
+});
+
+export type DamageLossQuery = z.infer<typeof damageLossQuerySchema>;
