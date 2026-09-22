@@ -1134,6 +1134,39 @@ describe("Requisition CRUD API Integration Tests", () => {
       expect(damagedMovement?.qty).toBe(1);
     });
 
+    it("deducts every issued unit from onHand and the spare portion from spareQty", async () => {
+      await prisma.stock.create({
+        data: {
+          componentId: componentOneId,
+          onHand: 10,
+          spareQty: 5,
+        },
+      });
+
+      await prisma.requisition.update({
+        where: { id: requisitionId },
+        data: { status: "READY" },
+      });
+
+      await prisma.requisitionLine.updateMany({
+        where: { requisitionId },
+        data: { qtySpare: 3 },
+      });
+
+      const res = await request(app)
+        .post(`/api/requisitions/${requisitionId}/issue`)
+        .set("Authorization", `Bearer ${centralToken}`);
+
+      expect(res.status).toBe(200);
+
+      const stock = await prisma.stock.findUniqueOrThrow({
+        where: { componentId: componentOneId },
+      });
+
+      expect(stock.onHand).toBe(5);
+      expect(stock.spareQty).toBe(2);
+    });
+
     it("Task 5.18: still accepts a return whose counts sum exactly to qtyIssued", async () => {
       await prisma.stock.create({
         data: { componentId: componentOneId, onHand: 10, spareQty: 0 },
@@ -1606,7 +1639,6 @@ describe("Requisition CRUD API Integration Tests", () => {
     let tier2ComponentId: string;
     let tier3ComponentId: string;
     let tier4ComponentId: string;
-    let officeDepartmentId: string;
 
     beforeAll(async () => {
       const concurrentComponent = await prisma.component.create({
@@ -1642,42 +1674,14 @@ describe("Requisition CRUD API Integration Tests", () => {
       tier2ComponentId = tier2Component.id;
 
       await prisma.stock.create({
-        data: { componentId: tier2ComponentId, onHand: 10, spareQty: 0 },
+        data: { componentId: tier2ComponentId, onHand: 10, spareQty: 5 },
       });
-
-      // Reuse whatever office department already exists (real seed data
-      // normally has one); only create a stand-in when none does, so this
-      // never competes with a genuine office department for the resolver's
-      // findFirst({ isOffice: true }) lookup.
-      const existingOffice = await prisma.department.findFirst({
-        where: { isOffice: true, isActive: true },
-      });
-
-      officeDepartmentId = existingOffice
-        ? existingOffice.id
-        : (
-            await prisma.department.create({
-              data: {
-                code: "TEST-REQ-OFFICE",
-                name: "Requisition Test Office",
-                isOffice: true,
-              },
-            })
-          ).id;
 
       await prisma.departmentQuota.create({
         data: {
           departmentId: departmentAId,
           componentId: tier2ComponentId,
           qty: 2,
-        },
-      });
-
-      await prisma.departmentQuota.create({
-        data: {
-          departmentId: officeDepartmentId,
-          componentId: tier2ComponentId,
-          qty: 5,
         },
       });
 
@@ -1788,7 +1792,7 @@ describe("Requisition CRUD API Integration Tests", () => {
       expect(res.body.data.lines[0].qtyShort).toBe(0);
     });
 
-    it("falls back to the office department when the requester's own quota is short", async () => {
+    it("falls back to the real spare pool when the requester's own quota is short", async () => {
       const created = await create(
         {
           type: "PERSONAL",
@@ -1823,12 +1827,21 @@ describe("Requisition CRUD API Integration Tests", () => {
       ).toBe(true);
       expect(
         allocations.some(
-          (a) => a.source === "SPARE" && a.sourceDeptId === officeDepartmentId,
+          (a) => a.source === "SPARE" && a.sourceDeptId === null,
         ),
       ).toBe(true);
+
+      const purchaseRequest = await prisma.purchaseRequest.findFirst({
+        where: {
+          requisitionId: created.body.data.id,
+          componentId: tier2ComponentId,
+        },
+      });
+
+      expect(purchaseRequest).toBeNull();
     });
 
-    it("lands on SUBMITTED, not READY, when even the office falls short", async () => {
+    it("lands on SUBMITTED when even the spare pool falls short", async () => {
       const created = await create(
         {
           type: "PERSONAL",
@@ -1847,7 +1860,7 @@ describe("Requisition CRUD API Integration Tests", () => {
       expect(res.body.data.lines[0].qtyShort).toBeGreaterThan(0);
     });
 
-    it("borrows from another department when neither own quota nor the office can cover it", async () => {
+    it("borrows from another department when neither own quota nor the spare pool can cover it", async () => {
       const created = await create(
         {
           type: "PERSONAL",
@@ -1934,7 +1947,7 @@ describe("Requisition CRUD API Integration Tests", () => {
       expect(borrowRequest?.lines[0].qtyRequested).toBe(8);
     });
 
-    it("auto-raises a purchase request when no quota, office, or lender can cover it", async () => {
+    it("auto-raises a purchase request when no quota, spare pool, or lender can cover it", async () => {
       const created = await create(
         {
           type: "PERSONAL",

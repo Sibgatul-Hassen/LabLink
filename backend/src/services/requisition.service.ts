@@ -31,10 +31,9 @@ import {
  *   - RequisitionStatus has no PARTIALLY_READY. A requisition that is submitted
  *     but not fully covered lands on SUBMITTED (the enum's own "awaiting
  *     further resolution" state) instead.
- *   - AllocationSource has no OFFICE. The office department's stock *is* the
- *     schema's "spare" pool (Stock.spareQty's own comment: "held outside every
- *     department quota"), so tier 2 allocations use AllocationSource.SPARE,
- *     with sourceDeptId set to the office department actually drawn from.
+ *   - AllocationSource has no OFFICE. Tier 2 uses the real shared
+ *     Stock.spareQty pool ("held outside every department quota"), so its
+ *     allocations use AllocationSource.SPARE with sourceDeptId = null.
  *   - RequisitionLine has no qtyFromBorrow column — the real field is
  *     qtyBorrowed. Tier 3 writes there.
  */
@@ -602,9 +601,11 @@ export class RequisitionService {
         const currentSpareQty = stock?.spareQty ?? 0;
 
         const sparePortion = Math.min(line.qtySpare, line.qtyNeeded);
-        const onHandPortion = line.qtyNeeded - sparePortion;
 
-        const newOnHand = currentOnHand - onHandPortion;
+        // onHand is total physical stock. spareQty is a reserved subset of
+        // that total, so every issued unit leaves onHand while only the
+        // spare-sourced portion also leaves spareQty.
+        const newOnHand = currentOnHand - line.qtyNeeded;
         const newSpareQty = currentSpareQty - sparePortion;
 
         if (newOnHand < 0 || newSpareQty < 0) {
@@ -974,8 +975,7 @@ export class RequisitionService {
   // ─────────────── resolver ───────────────
 
   /**
-   * Tier 1 (own quota), tier 2 (the office department's quota, standing in
-   * for the shared spare pool), tier 3 (borrowing from other academic
+   * Tier 1 (own quota), tier 2 (the shared Stock.spareQty pool), tier 3 (borrowing from other academic
    * departments), then tier 4 (auto-raising a purchase request for whatever
    * is still short) for a single line. Tier 4 does not reduce the shortfall
    * the way tiers 1-3 do — a pending purchase is not units in hand — so the
@@ -989,7 +989,6 @@ export class RequisitionService {
     requisitionId: string,
     departmentId: string,
     window: AvailabilityWindow,
-    officeDept: { id: string } | null,
     line: RequisitionLine,
     raisedById: string,
   ): Promise<number> {
@@ -1020,29 +1019,74 @@ export class RequisitionService {
       remaining -= fromOwn;
     }
 
-    // Tier 2 only makes sense as a distinct source when the office is not the
-    // requesting department itself — otherwise it is the same quota twice.
-    if (remaining > 0 && officeDept && officeDept.id !== departmentId) {
-      const officeAvailable = await AvailabilityService.availableToDept(
-        officeDept.id,
-        line.componentId,
-        window,
-        requisitionId,
-        tx,
+    // Tier 2 � draw from the real shared spare pool. spareQty is a reserved
+    // subset of total onHand, so both spare reservations and total physical
+    // availability must be respected.
+    if (remaining > 0) {
+      const [stock, heldSpareResult, heldAllResult] = await Promise.all([
+        tx.stock.findUnique({
+          where: { componentId: line.componentId },
+        }),
+        tx.allocation.aggregate({
+          where: {
+            status: "HELD",
+            source: "SPARE",
+            sourceDeptId: null,
+            requisitionLine: {
+              componentId: line.componentId,
+              requisition: {
+                id: { not: requisitionId },
+                neededFrom: { lt: window.to },
+                neededTo: { gt: window.from },
+              },
+            },
+          },
+          _sum: { qty: true },
+        }),
+        tx.allocation.aggregate({
+          where: {
+            status: "HELD",
+            requisitionLine: {
+              componentId: line.componentId,
+              requisition: {
+                id: { not: requisitionId },
+                neededFrom: { lt: window.to },
+                neededTo: { gt: window.from },
+              },
+            },
+          },
+          _sum: { qty: true },
+        }),
+      ]);
+
+      const spareQty = stock?.spareQty ?? 0;
+      const onHand = stock?.onHand ?? 0;
+      const heldSpare = heldSpareResult._sum.qty ?? 0;
+      const heldAll = heldAllResult._sum.qty ?? 0;
+
+      const spareFree = Math.max(0, spareQty - heldSpare);
+
+      // This requisition is excluded from heldAll, so subtract the own-quota
+      // units allocated earlier in this same resolution.
+      const physicalFree = Math.max(
+        0,
+        onHand - heldAll - qtyOwnQuota,
       );
 
-      const fromOffice = Math.min(remaining, officeAvailable);
+      const spareAvailable = Math.min(spareFree, physicalFree);
+      const fromSpare = Math.min(remaining, spareAvailable);
 
-      if (fromOffice > 0) {
+      if (fromSpare > 0) {
         await this.createAllocation(
           line.id,
-          fromOffice,
+          fromSpare,
           "SPARE",
-          officeDept.id,
+          null,
           tx,
         );
-        qtySpare = fromOffice;
-        remaining -= fromOffice;
+
+        qtySpare = fromSpare;
+        remaining -= fromSpare;
       }
     }
 
@@ -1145,7 +1189,7 @@ export class RequisitionService {
   /**
    * Submits a DRAFT for resolution. The whole read-decide-write cycle runs
    * inside one Serializable transaction: two submits racing for the same
-   * last units — whether a department's own quota, the office's spare pool,
+   * last units — whether a department's own quota, the shared spare pool,
    * or another department's lendable stock — will see Postgres abort one of
    * them (P2034) rather than let both believe they got the stock, because
    * every tier's availability reads go through the same `tx` as the
@@ -1183,11 +1227,6 @@ export class RequisitionService {
             to: requisition.neededTo,
           };
 
-          const officeDept = await tx.department.findFirst({
-            where: { isOffice: true, isActive: true },
-            orderBy: { createdAt: "asc" },
-          });
-
           let fullyResolved = true;
 
           for (const line of requisition.lines) {
@@ -1196,7 +1235,6 @@ export class RequisitionService {
               id,
               requisition.departmentId,
               window,
-              officeDept,
               line,
               actor.id,
             );
