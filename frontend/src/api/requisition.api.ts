@@ -85,6 +85,13 @@ export async function deleteRequisition(id: string): Promise<void> {
   await apiClient.delete(`/api/requisitions/${id}`);
 }
 
+export async function cancelRequisition(id: string): Promise<Requisition> {
+  const response = await apiClient.post<RequisitionResponse>(
+    `/api/requisitions/${id}/cancel`,
+  );
+  return response.data.data;
+}
+
 // All three line operations return the whole requisition, so the caller always
 // holds a current line list without a second fetch.
 
@@ -121,6 +128,17 @@ export async function removeRequisitionLine(
     `/api/requisitions/${requisitionId}/lines/${lineId}`,
   );
 
+  return response.data.data;
+}
+
+export async function orderLiveForSession(
+  sessionId: string,
+  lines: CreateRequisitionLineInput[],
+): Promise<Requisition> {
+  const response = await apiClient.post<RequisitionResponse>(
+    "/api/sessions/" + sessionId + "/live-order",
+    { lines },
+  );
   return response.data.data;
 }
 

@@ -17,6 +17,9 @@ import ClassSessions from "./pages/ClassSessions";
 import PeakClasses from "./pages/PeakClasses";
 import Analytics from "./pages/Analytics";
 import Requisitions from "./pages/Requisitions";
+import DamageReports from "./pages/DamageReports";
+import Suggestions from "./pages/Suggestions";
+import Penalties from "./pages/Penalties";
 import PurchaseRequests from "./pages/PurchaseRequests";
 import BorrowRequests from "./pages/BorrowRequests";
 import Users from "./pages/Users";
@@ -175,6 +178,39 @@ export default function App() {
           <ProtectedRoute>
             <Layout>
               <Requisitions />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/penalties"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <Penalties />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/suggestions"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <Suggestions />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/damage-reports"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <DamageReports />
             </Layout>
           </ProtectedRoute>
         }

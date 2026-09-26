@@ -1,7 +1,7 @@
 import { Router, Response } from "express";
 import { ComponentService } from "../services/component.service";
 import { requireAuth } from "../middleware/auth";
-import { requireRole } from "../middleware/rbac";
+import { ALL_ROLES, requireRole } from "../middleware/rbac";
 import { departmentScope } from "../middleware/scope";
 import {
   createComponentSchema,
@@ -47,7 +47,7 @@ router.post(
 // GET /api/components - List (all authenticated users)
 router.get(
   "/components",
-  requireAuth,
+  requireAuth, requireRole(...ALL_ROLES),
   departmentScope,
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
@@ -63,7 +63,7 @@ router.get(
 // GET /api/components/export/csv - Export components as CSV
 router.get(
   "/components/export/csv",
-  requireAuth,
+  requireAuth, requireRole(...ALL_ROLES),
   departmentScope,
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
@@ -84,7 +84,7 @@ router.get(
 // GET /api/components/:id - Get one (all authenticated users)
 router.get(
   "/components/:id",
-  requireAuth,
+  requireAuth, requireRole(...ALL_ROLES),
   departmentScope,
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
@@ -151,7 +151,7 @@ router.delete(
 );
 router.get(
   "/components/:id/substitutes",
-  requireAuth,
+  requireAuth, requireRole(...ALL_ROLES),
   departmentScope,
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {

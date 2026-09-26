@@ -2,7 +2,7 @@ import { Router, Response } from "express";
 import { ZodError } from "zod";
 
 import { requireAuth } from "../middleware/auth";
-import { requireRole } from "../middleware/rbac";
+import { ALL_ROLES, requireRole } from "../middleware/rbac";
 import {
   approveBorrowSchema,
   createBorrowRequestSchema,
@@ -121,7 +121,7 @@ router.post(
 
 router.get(
   "/borrow-requests",
-  requireAuth,
+  requireAuth, requireRole(...ALL_ROLES),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);
@@ -219,7 +219,7 @@ router.get(
 
 router.get(
   "/borrow-requests/:id",
-  requireAuth,
+  requireAuth, requireRole(...ALL_ROLES),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);

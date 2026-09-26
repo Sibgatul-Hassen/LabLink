@@ -5,6 +5,8 @@ export interface Notification {
   userId: string;
   title: string;
   body: string;
+  refType: string | null;
+  refId: string | null;
   isRead: boolean;
   createdAt: string;
 }

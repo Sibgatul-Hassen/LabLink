@@ -2,7 +2,7 @@ import { Router, Response } from "express";
 import { ZodError } from "zod";
 
 import { requireAuth } from "../middleware/auth";
-import { requireRole } from "../middleware/rbac";
+import { ALL_ROLES, requireRole } from "../middleware/rbac";
 import {
   createLabSchema,
   listLabsQuerySchema,
@@ -74,7 +74,7 @@ router.post(
 
 router.get(
   "/labs",
-  requireAuth,
+  requireAuth, requireRole(...ALL_ROLES),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const query = listLabsQuerySchema.parse(req.query);
@@ -88,7 +88,7 @@ router.get(
 
 router.get(
   "/labs/:id",
-  requireAuth,
+  requireAuth, requireRole(...ALL_ROLES),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const lab = await LabService.getLabById(req.params.id);

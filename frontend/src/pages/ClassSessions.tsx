@@ -11,6 +11,7 @@ import {
   getSessions,
 } from "../api/session.api";
 import { useAuthStore } from "../store/authStore";
+import LiveOrderModal from "../components/LiveOrderModal";
 import type { ClassSession, SessionStatus } from "../types";
 
 const DAY_NAMES = [
@@ -59,6 +60,8 @@ export default function ClassSessions() {
   const [horizonDays, setHorizonDays] = useState("21");
   const [generateMessage, setGenerateMessage] = useState("");
   const [actionError, setActionError] = useState("");
+  const [orderSession, setOrderSession] = useState<ClassSession | null>(null);
+  const [orderMessage, setOrderMessage] = useState("");
 
   const limit = 15;
   const isAdmin = user?.role === "SYSTEM_ADMIN";
@@ -146,6 +149,16 @@ export default function ClassSessions() {
     return false;
   }
 
+  function canOrder(session: ClassSession): boolean {
+    return (
+      canAssign(session) &&
+      session.status !== "CANCELLED" &&
+      session.status !== "COMPLETED" &&
+      new Date(session.endsAt).getTime() > Date.now() &&
+      (!session.requisition || session.requisition.status === "DRAFT")
+    );
+  }
+
   function handleGenerate() {
     setGenerateMessage("");
     setActionError("");
@@ -207,6 +220,12 @@ export default function ClassSessions() {
           </div>
         )}
       </div>
+
+      {orderMessage && (
+        <div role="status" className="rounded-lg bg-green-50 px-4 py-3 text-sm text-green-700">
+          {orderMessage}
+        </div>
+      )}
 
       {generateMessage && (
         <div
@@ -361,6 +380,11 @@ export default function ClassSessions() {
                   <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Status
                   </th>
+                  {(isInstructor || isAdmin) && (
+                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Order
+                    </th>
+                  )}
                 </tr>
               </thead>
 
@@ -445,6 +469,21 @@ export default function ClassSessions() {
                           {session.status}
                         </span>
                       </td>
+                      {(isInstructor || isAdmin) && (
+                        <td className="whitespace-nowrap px-6 py-4 text-sm">
+                          {canOrder(session) ? (
+                            <button
+                              type="button"
+                              onClick={() => { setOrderMessage(""); setOrderSession(session); }}
+                              className="rounded-md bg-slate-900 px-3 py-1.5 font-medium text-white hover:bg-slate-700"
+                            >
+                              {session.requisition ? "Replace draft" : "Order components"}
+                            </button>
+                          ) : session.requisition ? (
+                            <span className="text-slate-500">Already ordered</span>
+                          ) : null}
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -485,6 +524,24 @@ export default function ClassSessions() {
           </div>
         </div>
       </div>
+
+      {orderSession && (
+        <LiveOrderModal
+          key={orderSession.id}
+          session={orderSession}
+          onClose={() => setOrderSession(null)}
+          onOrdered={async (requisition) => {
+            setOrderSession(null);
+            setOrderMessage(
+              "Class order placed: " + requisition.status.replace(/_/g, " ") + ".",
+            );
+            await Promise.all([
+              queryClient.invalidateQueries({ queryKey: ["sessions"] }),
+              queryClient.invalidateQueries({ queryKey: ["requisitions"] }),
+            ]);
+          }}
+        />
+      )}
     </div>
   );
 }

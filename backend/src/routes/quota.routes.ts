@@ -1,7 +1,7 @@
 import { Router, Response } from "express";
 import { ZodError } from "zod";
 import { requireAuth } from "../middleware/auth";
-import { requireRole } from "../middleware/rbac";
+import { ALL_ROLES, requireRole } from "../middleware/rbac";
 import { departmentScope } from "../middleware/scope";
 import {
   generateQuotaSuggestionsSchema,
@@ -29,7 +29,7 @@ function getScopedDepartmentId(
 // GET /api/quotas - List quotas with department scoping
 router.get(
   "/quotas",
-  requireAuth,
+  requireAuth, requireRole(...ALL_ROLES),
   departmentScope,
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
@@ -92,7 +92,7 @@ router.post(
 // GET /api/quotas/:departmentId/:componentId/history
 router.get(
   "/quotas/:departmentId/:componentId/history",
-  requireAuth,
+  requireAuth, requireRole(...ALL_ROLES),
   departmentScope,
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
@@ -130,7 +130,7 @@ router.get(
 // GET /api/quotas/:departmentId/:componentId
 router.get(
   "/quotas/:departmentId/:componentId",
-  requireAuth,
+  requireAuth, requireRole(...ALL_ROLES),
   departmentScope,
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {

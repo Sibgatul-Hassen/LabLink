@@ -1,7 +1,7 @@
 import { Router, Response } from "express";
 import { ZodError } from "zod";
 import { requireAuth } from "../middleware/auth";
-import { requireRole } from "../middleware/rbac";
+import { ALL_ROLES, requireRole } from "../middleware/rbac";
 import {
   adjustStockSchema,
   listStockMovementsQuerySchema,
@@ -17,7 +17,7 @@ const router = Router();
 // GET /api/stocks - List stock (all authenticated users)
 router.get(
   "/stocks",
-  requireAuth,
+  requireAuth, requireRole(...ALL_ROLES),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const query = listStocksQuerySchema.parse(req.query);
@@ -37,7 +37,7 @@ router.get(
 // GET /api/stocks/:componentId/movements - Movement history
 router.get(
   "/stocks/:componentId/movements",
-  requireAuth,
+  requireAuth, requireRole(...ALL_ROLES),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const query = listStockMovementsQuerySchema.parse(req.query);
@@ -65,7 +65,7 @@ router.get(
 // GET /api/stocks/:componentId - Get one stock record
 router.get(
   "/stocks/:componentId",
-  requireAuth,
+  requireAuth, requireRole(...ALL_ROLES),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const stock = await StockService.getStockByComponentId(

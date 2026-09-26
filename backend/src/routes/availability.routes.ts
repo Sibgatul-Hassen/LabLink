@@ -2,6 +2,7 @@ import { Router, Response } from "express";
 import { ZodError } from "zod";
 
 import { requireAuth } from "../middleware/auth";
+import { ALL_ROLES, requireRole } from "../middleware/rbac";
 import { availabilityQuerySchema } from "../schemas/availability.schema";
 import { AvailabilityService } from "../services/availability.service";
 import { prisma } from "../lib/prisma";
@@ -45,7 +46,7 @@ function handleAvailabilityError(error: unknown, res: Response): void {
 // can do at all.
 router.get(
   "/availability",
-  requireAuth,
+  requireAuth, requireRole(...ALL_ROLES),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       if (!req.user) {

@@ -415,7 +415,14 @@ export class AnalyticsService {
     query: DamageLossQuery,
   ): Promise<DamageLossResult> {
     const where: Prisma.RequisitionLineWhereInput = {
-      OR: [{ qtyDamaged: { gt: 0 } }, { qtyLost: { gt: 0 } }],
+      OR: [
+        { qtyDamaged: { gt: 0 } },
+        { qtyLost: { gt: 0 } },
+        { allocations: { some: { OR: [
+          { damagedQty: { gt: 0 } },
+          { lostQty: { gt: 0 } },
+        ] } } },
+      ],
       requisition: {
         classSessionId: { not: null },
       },
@@ -432,6 +439,7 @@ export class AnalyticsService {
     const lines = await prisma.requisitionLine.findMany({
       where,
       include: {
+        allocations: { select: { damagedQty: true, lostQty: true } },
         requisition: {
           include: {
             classSession: {
@@ -474,8 +482,12 @@ export class AnalyticsService {
         itemsMap.set(section.id, item);
       }
 
-      item.totalQtyDamaged += line.qtyDamaged;
-      item.totalQtyLost += line.qtyLost;
+      item.totalQtyDamaged += line.qtyDamaged + line.allocations.reduce(
+        (sum, allocation) => sum + allocation.damagedQty, 0,
+      );
+      item.totalQtyLost += line.qtyLost + line.allocations.reduce(
+        (sum, allocation) => sum + allocation.lostQty, 0,
+      );
     }
 
     const data = Array.from(itemsMap.values()).sort(

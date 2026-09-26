@@ -2,7 +2,7 @@ import { Router, Response } from "express";
 import { ZodError } from "zod";
 
 import { requireAuth } from "../middleware/auth";
-import { requireRole } from "../middleware/rbac";
+import { ALL_ROLES, requireRole } from "../middleware/rbac";
 import { importRoutineSlotsSchema } from "../schemas/routine-import.schema";
 import {
   createRoutineSlotSchema,
@@ -92,7 +92,7 @@ router.post(
 
 router.get(
   "/routine-slots",
-  requireAuth,
+  requireAuth, requireRole(...ALL_ROLES),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const query = listRoutineSlotsQuerySchema.parse(req.query);
@@ -106,7 +106,7 @@ router.get(
 
 router.get(
   "/routine-slots/:id",
-  requireAuth,
+  requireAuth, requireRole(...ALL_ROLES),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const routineSlot = await RoutineSlotService.getRoutineSlotById(

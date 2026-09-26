@@ -2,7 +2,7 @@ import { Router, Response } from "express";
 import { ZodError } from "zod";
 
 import { requireAuth } from "../middleware/auth";
-import { requireRole } from "../middleware/rbac";
+import { ALL_ROLES, requireRole } from "../middleware/rbac";
 import {
   assignExperimentSchema,
   generateSessionsSchema,
@@ -86,7 +86,7 @@ router.post(
 
 router.get(
   "/sessions",
-  requireAuth,
+  requireAuth, requireRole(...ALL_ROLES),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const query = listSessionsQuerySchema.parse(req.query);
@@ -100,7 +100,7 @@ router.get(
 
 router.get(
   "/sessions/:id",
-  requireAuth,
+  requireAuth, requireRole(...ALL_ROLES),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const session = await SessionService.getSessionById(req.params.id);

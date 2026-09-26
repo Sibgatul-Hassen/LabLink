@@ -305,6 +305,7 @@ export interface SessionLab {
   id: string;
   name: string;
   roomNo: string;
+  groupSize: number;
 }
 
 export interface SessionSection {
@@ -341,6 +342,7 @@ export interface ClassSession {
   status: SessionStatus;
   routineSlot: SessionRoutineSlot;
   experiment: SessionExperiment | null;
+  requisition: { id: string; status: RequisitionStatus } | null;
 }
 
 export interface GenerateSessionsResult {
@@ -645,6 +647,14 @@ export interface RequisitionLine {
   qtyLost: number;
   qtyUsedUp: number;
   component: RequisitionLineComponent;
+  allocations: {
+    id: string;
+    source: string;
+    substituteComponentId: string | null;
+    substituteComponent: { id: string; code: string; name: string } | null;
+    lostQty: number;
+    damagedQty: number;
+  }[];
 }
 
 export interface RequisitionClassSession {
@@ -728,6 +738,15 @@ export interface ResolutionBreakdownLine {
   componentName: string;
   qtyNeeded: number;
   qtyFromOwn: number;
+  qtyFromSubstitute: number;
+  substitutes: {
+    componentId: string;
+    componentCode: string;
+    componentName: string;
+    physicalQty: number;
+    ratio: number;
+    equivalentQty: number;
+  }[];
   qtyFromOffice: number;
   qtyFromBorrow: number;
   qtyToPurchase: number;
@@ -893,6 +912,8 @@ export interface IssuePreviewLine {
   componentName: string;
   qtyNeeded: number;
   currentStock: number;
+  isSubstitute: boolean;
+  originalComponentCode?: string;
 }
 
 export interface IssuePreview {
@@ -909,6 +930,8 @@ export interface ReturnPreviewLine {
   componentCode: string;
   componentName: string;
   qtyIssued: number;
+  isSubstitute: boolean;
+  originalComponentCode?: string;
 }
 
 export interface ReturnPreview {

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import {
   getNotifications,
   markNotificationRead,
@@ -23,6 +24,7 @@ export default function NotificationBell() {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   const { data: notifications = [] } = useQuery({
     queryKey: ["notifications"],
@@ -131,6 +133,9 @@ export default function NotificationBell() {
                 }`}
                 onClick={() => {
                   if (!n.isRead) markReadMut.mutate(n.id);
+                  if (n.refType === "AUTO_DRAFT") navigate("/requisitions");
+                  if (n.refType === "LOW_STOCK") navigate("/stocks");
+                  setOpen(false);
                 }}
               >
                 <div className="flex items-start gap-2">
