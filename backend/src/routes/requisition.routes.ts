@@ -1,12 +1,14 @@
 import { Router, Response } from "express";
+import { Prisma } from "@prisma/client";
 import { ZodError } from "zod";
 
 import { requireAuth } from "../middleware/auth";
-import { requireRole } from "../middleware/rbac";
+import { ALL_ROLES, requireRole } from "../middleware/rbac";
 import {
   createRequisitionLineSchema,
   createRequisitionSchema,
   listRequisitionsQuerySchema,
+  liveOrderSchema,
   returnRequisitionSchema,
   updateRequisitionLineSchema,
   updateRequisitionSchema,
@@ -27,15 +29,24 @@ const NOT_FOUND_MESSAGES = [
 ];
 
 const FORBIDDEN_MESSAGES = [
+  "Only instructors can place a live class order",
+  "You can only order for your own classes",
   "You cannot raise this type of requisition",
   "You can only raise requisitions for your own department",
   "You can only change your own requisitions",
+  "Outstanding penalties have reached the personal requisition limit",
 ];
 
 const CONFLICT_MESSAGES = [
+  "This class session is no longer open for orders",
+  "Only an unsubmitted class draft can be replaced",
+  "This class order changed concurrently - please try again",
+  "Substitute allocation does not match the requisition",
   "This class session already has a requisition",
   "This component is already on the requisition",
   "Only a draft requisition can be changed",
+  "Only an unissued requisition can be cancelled",
+  "This requisition has completed borrow or purchase activity",
   "This requisition is being resolved concurrently — please try again",
 ];
 
@@ -47,9 +58,15 @@ const BAD_REQUEST_MESSAGES = [
   "Requisition must be issued before it can be returned",
   "Component not on this requisition",
   "Return quantity exceeds issued quantity",
+  "Return contains the same component twice",
+  "Return must include every issued component",
 ];
 
 function handleRequisitionError(error: unknown, res: Response): void {
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") {
+    res.status(409).json({ error: "Requisition changed concurrently; please try again" });
+    return;
+  }
   if (error instanceof ZodError) {
     res
       .status(400)
@@ -95,6 +112,7 @@ function handleRequisitionError(error: unknown, res: Response): void {
     return;
   }
 
+  console.error("Unhandled requisition error", error);
   res.status(500).json({ error: "Internal server error" });
 }
 
@@ -110,19 +128,36 @@ function actorFrom(req: AuthenticatedRequest): RequisitionActor | null {
   };
 }
 
-/**
- * No requireRole guard on these routes, deliberately.
- *
- * Which roles may create a requisition depends on the *type* in the body — a
- * student may raise PERSONAL but not CLASS, a lab assistant the reverse. And
- * reading is open to everyone, with the scope narrowing what comes back rather
- * than whether the call is allowed. Middleware cannot express either rule
- * without reading the body or the database, so both live in the service.
- */
+// All authenticated roles pass the guard; the service applies type and scope permissions.
+
+router.post(
+  "/sessions/:id/live-order",
+  requireAuth,
+  requireRole("INSTRUCTOR", "SYSTEM_ADMIN"),
+  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const actor = actorFrom(req);
+      if (!actor) {
+        res.status(401).json({ error: "Not authenticated" });
+        return;
+      }
+      const data = liveOrderSchema.parse(req.body);
+      const requisition = await RequisitionService.orderLiveForSession(
+        req.params.id,
+        data,
+        actor,
+      );
+      res.status(201).json({ data: requisition });
+    } catch (error) {
+      handleRequisitionError(error, res);
+    }
+  },
+);
 
 router.post(
   "/requisitions",
   requireAuth,
+  requireRole(...ALL_ROLES),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);
@@ -148,6 +183,7 @@ router.post(
 router.get(
   "/requisitions",
   requireAuth,
+  requireRole(...ALL_ROLES),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);
@@ -170,6 +206,7 @@ router.get(
 router.get(
   "/requisitions/:id",
   requireAuth,
+  requireRole(...ALL_ROLES),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);
@@ -194,6 +231,7 @@ router.get(
 router.patch(
   "/requisitions/:id",
   requireAuth,
+  requireRole(...ALL_ROLES),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);
@@ -217,9 +255,35 @@ router.patch(
   },
 );
 
+router.post(
+  "/requisitions/:id/cancel",
+  requireAuth,
+  requireRole(
+    "STUDENT", "INSTRUCTOR", "LAB_ASSISTANT", "DEPT_STORE_HEAD",
+    "CENTRAL_STORE_OFFICER", "OFFICE_ADMIN", "SYSTEM_ADMIN",
+  ),
+  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const actor = actorFrom(req);
+      if (!actor) {
+        res.status(401).json({ error: "Not authenticated" });
+        return;
+      }
+      const requisition = await RequisitionService.cancelRequisition(
+        req.params.id,
+        actor,
+      );
+      res.status(200).json({ data: requisition });
+    } catch (error) {
+      handleRequisitionError(error, res);
+    }
+  },
+);
+
 router.delete(
   "/requisitions/:id",
   requireAuth,
+  requireRole(...ALL_ROLES),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);
@@ -246,6 +310,7 @@ router.delete(
 router.post(
   "/requisitions/:id/lines",
   requireAuth,
+  requireRole(...ALL_ROLES),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);
@@ -272,6 +337,7 @@ router.post(
 router.patch(
   "/requisitions/:id/lines/:lineId",
   requireAuth,
+  requireRole(...ALL_ROLES),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);
@@ -299,6 +365,7 @@ router.patch(
 router.delete(
   "/requisitions/:id/lines/:lineId",
   requireAuth,
+  requireRole(...ALL_ROLES),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);
@@ -323,12 +390,11 @@ router.delete(
 
 // ─────────────── submit & resolution ───────────────
 
-// No requireRole guard here either — submitting is finalizing your own
-// draft, and loadEditable (via RequisitionService.submitRequisition) already
-// enforces "yours, and still a draft" the same way update/delete/addLine do.
+// The service also checks ownership and draft status before submission.
 router.post(
   "/requisitions/:id/submit",
   requireAuth,
+  requireRole(...ALL_ROLES),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);
@@ -353,6 +419,7 @@ router.post(
 router.get(
   "/requisitions/:id/resolution",
   requireAuth,
+  requireRole(...ALL_ROLES),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);

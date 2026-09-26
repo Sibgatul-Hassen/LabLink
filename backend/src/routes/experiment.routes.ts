@@ -2,7 +2,7 @@ import { Router, Response } from "express";
 import { ZodError } from "zod";
 
 import { requireAuth } from "../middleware/auth";
-import { requireRole } from "../middleware/rbac";
+import { ALL_ROLES, requireRole } from "../middleware/rbac";
 import {
   createExperimentItemSchema,
   createExperimentSchema,
@@ -69,7 +69,7 @@ router.post(
 
 router.get(
   "/experiments",
-  requireAuth,
+  requireAuth, requireRole(...ALL_ROLES),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const query = listExperimentsQuerySchema.parse(req.query);
@@ -83,7 +83,7 @@ router.get(
 
 router.get(
   "/experiments/:id",
-  requireAuth,
+  requireAuth, requireRole(...ALL_ROLES),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const experiment = await ExperimentService.getExperimentById(

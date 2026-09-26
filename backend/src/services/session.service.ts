@@ -14,7 +14,7 @@ const sessionInclude = {
       startTime: true,
       endTime: true,
       lab: {
-        select: { id: true, name: true, roomNo: true },
+        select: { id: true, name: true, roomNo: true, groupSize: true },
       },
       section: {
         select: {
@@ -33,6 +33,7 @@ const sessionInclude = {
   experiment: {
     select: { id: true, number: true, title: true },
   },
+  requisition: { select: { id: true, status: true } },
 } satisfies Prisma.ClassSessionInclude;
 
 export type SessionWithRelations = Prisma.ClassSessionGetPayload<{

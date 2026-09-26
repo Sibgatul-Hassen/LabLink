@@ -21,6 +21,9 @@ import requisitionRouter from "./routes/requisition.routes";
 import borrowRouter from "./routes/borrow.routes";
 import purchaseRouter from "./routes/purchase.routes";
 import notificationRouter from "./routes/notification.routes";
+import damageRouter from "./routes/damage.routes";
+import suggestionRouter from "./routes/suggestion.routes";
+import penaltyRouter from "./routes/penalty.routes";
 
 const app = express();
 
@@ -45,6 +48,9 @@ app.use("/api", requisitionRouter);
 app.use("/api", borrowRouter);
 app.use("/api", purchaseRouter);
 app.use("/api", notificationRouter);
+app.use("/api", damageRouter);
+app.use("/api", suggestionRouter);
+app.use("/api", penaltyRouter);
 
 app.listen(env.PORT, () => {
   console.log(`LabLink API listening on port ${env.PORT}`);

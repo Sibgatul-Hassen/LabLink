@@ -70,8 +70,11 @@ async function sumOverlappingClaims(
   const where: Prisma.AllocationWhereInput = {
     status: "HELD",
     ...(sourceDeptId ? { sourceDeptId } : {}),
+    OR: [
+      { source: "SUBSTITUTE", substituteComponentId: componentId },
+      { source: { not: "SUBSTITUTE" }, requisitionLine: { componentId } },
+    ],
     requisitionLine: {
-      componentId,
       requisition: {
         neededFrom: { lt: win.to },
         neededTo: { gt: win.from },
@@ -89,6 +92,21 @@ async function sumOverlappingClaims(
 }
 
 export class AvailabilityService {
+  static async heldForComponent(
+    componentId: string,
+    win: AvailabilityWindow,
+    ignoreRequisitionId?: string,
+    client: AvailabilityQueryClient = prisma,
+  ): Promise<number> {
+    return sumOverlappingClaims(
+      client,
+      componentId,
+      win,
+      undefined,
+      ignoreRequisitionId,
+    );
+  }
+
   /**
    * Feature 53. Answers: how many units of this component can this department
    * claim over this window?

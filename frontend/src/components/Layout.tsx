@@ -26,6 +26,7 @@ const COMMON_LINKS: SidebarLink[] = [
   { label: "Experiments", to: "/experiments" },
   { label: "Class Sessions", to: "/sessions" },
   { label: "Requisitions", to: "/requisitions" },
+  { label: "Penalties", to: "/penalties" },
 ];
 
 const PEAK_CLASS_LOAD_LINK: SidebarLink = {
@@ -37,6 +38,9 @@ const PURCHASE_REQUESTS_LINK: SidebarLink = {
   label: "Purchase Requests",
   to: "/purchase-requests",
 };
+
+const SUGGESTIONS_LINK: SidebarLink = { label: "Suggestions", to: "/suggestions" };
+const DAMAGE_REPORTS_LINK: SidebarLink = { label: "Damage Reports", to: "/damage-reports" };
 
 const BORROW_REQUESTS_LINK: SidebarLink = {
   label: "Borrow Requests",
@@ -60,12 +64,13 @@ const ANALYTICS_LINK: SidebarLink = {
 const SIDEBAR_LINKS_BY_ROLE: Record<Role, SidebarLink[]> = {
   STUDENT: [...COMMON_LINKS],
   INSTRUCTOR: [...COMMON_LINKS],
-  LAB_ASSISTANT: [...COMMON_LINKS],
+  LAB_ASSISTANT: [...COMMON_LINKS, SUGGESTIONS_LINK],
   DEPT_STORE_HEAD: [
     ...COMMON_LINKS,
     PEAK_CLASS_LOAD_LINK,
     PURCHASE_REQUESTS_LINK,
     BORROW_REQUESTS_LINK,
+    SUGGESTIONS_LINK,
     ANALYTICS_LINK,
   ],
   CENTRAL_STORE_OFFICER: [
@@ -73,6 +78,8 @@ const SIDEBAR_LINKS_BY_ROLE: Record<Role, SidebarLink[]> = {
     PEAK_CLASS_LOAD_LINK,
     PURCHASE_REQUESTS_LINK,
     BORROW_REQUESTS_LINK,
+    DAMAGE_REPORTS_LINK,
+    SUGGESTIONS_LINK,
     ANALYTICS_LINK,
   ],
   OFFICE_ADMIN: [
@@ -86,6 +93,8 @@ const SIDEBAR_LINKS_BY_ROLE: Record<Role, SidebarLink[]> = {
     PEAK_CLASS_LOAD_LINK,
     PURCHASE_REQUESTS_LINK,
     BORROW_REQUESTS_LINK,
+    DAMAGE_REPORTS_LINK,
+    SUGGESTIONS_LINK,
     ANALYTICS_LINK,
     DEPARTMENTS_LINK,
     USERS_LINK,

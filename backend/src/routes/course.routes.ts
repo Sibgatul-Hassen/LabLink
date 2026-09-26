@@ -1,7 +1,7 @@
 import { Router, Response } from "express";
 
 import { requireAuth } from "../middleware/auth";
-import { requireRole } from "../middleware/rbac";
+import { ALL_ROLES, requireRole } from "../middleware/rbac";
 import {
   createCourseSchema,
   listCoursesQuerySchema,
@@ -44,7 +44,7 @@ router.post(
 // GET /api/courses - List (all authenticated users)
 router.get(
   "/courses",
-  requireAuth,
+  requireAuth, requireRole(...ALL_ROLES),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const query = listCoursesQuerySchema.parse(req.query);
@@ -60,7 +60,7 @@ router.get(
 // GET /api/courses/:id - Get one (all authenticated users)
 router.get(
   "/courses/:id",
-  requireAuth,
+  requireAuth, requireRole(...ALL_ROLES),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const course = await CourseService.getCourseById(req.params.id);

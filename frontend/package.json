@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "test": "node --test tests/*.test.cjs",
+    "test:browser": "node --test browser-tests/*.test.cjs",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -23,6 +25,7 @@
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",
     "autoprefixer": "^10.5.4",
+    "esbuild": "^0.21.5",
     "eslint": "^9.13.0",
     "eslint-plugin-react-hooks": "^5.0.0",
     "eslint-plugin-react-refresh": "^0.4.14",
