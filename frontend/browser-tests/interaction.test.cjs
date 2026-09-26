@@ -48,6 +48,11 @@ const browserRun = `
   };
   const button = (label) => [...document.querySelectorAll("button")]
     .find((item) => item.textContent.trim() === label);
+  const navigate = async (href) => {
+    const link = await wait(() => document.querySelector('a[href="' + href + '"]'), href + " link");
+    link.click();
+    await wait(() => location.pathname === href, href + " navigation");
+  };
   try {
     const email = await wait(() => document.querySelector("#email"), "login form");
     fill(email, "sysadmin@uiu.ac.bd");
@@ -55,7 +60,7 @@ const browserRun = `
     button("Sign in").click();
     await wait(() => location.pathname === "/dashboard", "login navigation");
 
-    document.querySelector('a[href="/penalties"]').click();
+    await navigate("/penalties");
     const rate = await wait(() => [...document.querySelectorAll("label")]
       .find((item) => item.textContent.includes("Amount per late day"))?.querySelector("input"), "rate form");
     fill(rate, "10");
@@ -66,19 +71,19 @@ const browserRun = `
     button("Save rate").click();
     await wait(() => document.body.textContent.includes("Penalty rate saved."), "rate save");
 
-    document.querySelector('a[href="/damage-reports"]').click();
+    await navigate("/damage-reports");
     await wait(() => button("Start maintenance"), "damage report");
     button("Start maintenance").click();
     await wait(() => button("Mark repaired"), "maintenance transition");
     button("Mark repaired").click();
     await wait(() => document.body.textContent.includes("marked repaired"), "repair transition");
 
-    document.querySelector('a[href="/suggestions"]').click();
+    await navigate("/suggestions");
     await wait(() => button("Accept"), "suggestion review");
     button("Accept").click();
     await wait(() => document.body.textContent.includes("Suggestion accepted."), "suggestion acceptance");
 
-    document.querySelector('a[href="/requisitions"]').click();
+    await navigate("/requisitions");
     await wait(() => button("Issue"), "ready requisition");
     button("Issue").click();
     await wait(() => button("Confirm Issue"), "issue preview");
@@ -98,7 +103,7 @@ const browserRun = `
     fill(document.querySelector("#password"), "Password123!");
     button("Sign in").click();
     await wait(() => location.pathname === "/dashboard", "student navigation");
-    document.querySelector('a[href="/requisitions"]').click();
+    await navigate("/requisitions");
     await wait(() => document.body.textContent.includes("Outstanding penalties have reached"), "student penalty block");
     if (!button("New Requisition")?.disabled) throw new Error("blocked personal button remained enabled");
     [...document.querySelectorAll('a[href="/penalties"]')].at(-1).click();
