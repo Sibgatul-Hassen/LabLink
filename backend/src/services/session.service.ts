@@ -54,6 +54,22 @@ export interface GenerateSessionsResult {
   to: string;
 }
 
+export interface SessionActor { id: string; role: Role; departmentId: string | null }
+
+function sessionScope(actor: SessionActor): Prisma.ClassSessionWhereInput {
+  switch (actor.role) {
+    case "INSTRUCTOR": return { routineSlot: { section: { instructorId: actor.id } } };
+    case "LAB_ASSISTANT": return { routineSlot: { OR: [
+      { section: { labAssistantId: actor.id } }, { lab: { labAssistantId: actor.id } },
+    ] } };
+    case "DEPT_STORE_HEAD": return { routineSlot: { section: { course: { departmentId: actor.departmentId ?? "__none__" } } } };
+    case "CENTRAL_STORE_OFFICER":
+    case "OFFICE_ADMIN":
+    case "SYSTEM_ADMIN": return {};
+    default: return { id: "__none__" };
+  }
+}
+
 /**
  * Everything here is built in UTC on purpose. `date` is a bare calendar date
  * while `startsAt`/`endsAt` are full timestamps; deriving them from local
@@ -149,12 +165,13 @@ export class SessionService {
 
   static async listSessions(
     query: ListSessionsQuery,
+    actor: SessionActor,
   ): Promise<PaginatedSessionsResponse> {
     const { labId, sectionId, courseId, status, from, to } = query;
     const page = Number(query.page) || 1;
     const limit = Number(query.limit) || 20;
 
-    const where: Prisma.ClassSessionWhereInput = {};
+    const where: Prisma.ClassSessionWhereInput = { AND: [sessionScope(actor)] };
     const routineSlotFilter: Prisma.RoutineSlotWhereInput = {};
 
     if (labId) {
@@ -198,7 +215,7 @@ export class SessionService {
     return { data: sessions, total, page, limit };
   }
 
-  static async getSessionById(id: string): Promise<SessionWithRelations> {
+  static async getSessionById(id: string, actor?: SessionActor): Promise<SessionWithRelations> {
     const session = await prisma.classSession.findUnique({
       where: { id },
       include: sessionInclude,
@@ -206,6 +223,11 @@ export class SessionService {
 
     if (!session) {
       throw new Error("Class session not found");
+    }
+
+    if (actor) {
+      const visible = await prisma.classSession.count({ where: { id, ...sessionScope(actor) } });
+      if (!visible) throw new Error("Class session is outside your scope");
     }
 
     return session;

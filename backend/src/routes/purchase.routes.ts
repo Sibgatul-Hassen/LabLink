@@ -2,7 +2,7 @@ import { Router, Response } from "express";
 import { ZodError } from "zod";
 
 import { requireAuth } from "../middleware/auth";
-import { ALL_ROLES, requireRole } from "../middleware/rbac";
+import { requireRole } from "../middleware/rbac";
 import {
   aggregatePurchaseRequestsSchema,
   createPurchaseRequestSchema,
@@ -30,6 +30,8 @@ const NOT_FOUND_MESSAGES = [
 // service, not a route-level gate.
 const FORBIDDEN_MESSAGES = [
   "Role does not match the approver for this purchase request's current rung",
+  "Purchase request belongs to another department",
+  "Requisition belongs to another department",
 ];
 
 const BAD_REQUEST_MESSAGES = [
@@ -87,7 +89,6 @@ router.post(
     "LAB_ASSISTANT",
     "DEPT_STORE_HEAD",
     "CENTRAL_STORE_OFFICER",
-    "SYSTEM_ADMIN",
   ),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
@@ -119,7 +120,7 @@ router.post(
 router.post(
   "/purchase-requests/aggregate",
   requireAuth,
-  requireRole("CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  requireRole("CENTRAL_STORE_OFFICER"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const validated = aggregatePurchaseRequestsSchema.parse(req.body);
@@ -134,12 +135,10 @@ router.post(
   },
 );
 
-// No requireRole — open to any authenticated user, scope narrows what comes
-// back rather than whether the call is allowed, same as GET /requisitions
-// and GET /borrow-requests.
+// Explicit purchase reader roles are narrowed by record scope in the service.
 router.get(
   "/purchase-requests",
-  requireAuth, requireRole(...ALL_ROLES),
+  requireAuth, requireRole("LAB_ASSISTANT", "DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER", "OFFICE_ADMIN"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);
@@ -168,7 +167,7 @@ router.get(
 router.get(
   "/purchase-requests/queue",
   requireAuth,
-  requireRole("CENTRAL_STORE_OFFICER", "OFFICE_ADMIN", "SYSTEM_ADMIN"),
+  requireRole("CENTRAL_STORE_OFFICER", "DEPT_STORE_HEAD", "OFFICE_ADMIN"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);
@@ -188,7 +187,7 @@ router.get(
 
 router.get(
   "/purchase-requests/:id",
-  requireAuth, requireRole(...ALL_ROLES),
+  requireAuth, requireRole("LAB_ASSISTANT", "DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER", "OFFICE_ADMIN"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);
@@ -222,7 +221,6 @@ router.post(
     "CENTRAL_STORE_OFFICER",
     "DEPT_STORE_HEAD",
     "OFFICE_ADMIN",
-    "SYSTEM_ADMIN",
   ),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
@@ -247,13 +245,11 @@ router.post(
   },
 );
 
-// Task 5.15. Deliberately narrower than the decide roles — receiving goods
-// is a physical stock-room act, not an approval rung, so only the central
-// store (who actually stocks the shelf) and SYSTEM_ADMIN can do it.
+// Receiving approved goods is a central store inventory action.
 router.post(
   "/purchase-requests/:id/receive",
   requireAuth,
-  requireRole("CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  requireRole("CENTRAL_STORE_OFFICER"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);

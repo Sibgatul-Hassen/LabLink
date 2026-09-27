@@ -64,7 +64,7 @@ export default function ClassSessions() {
   const [orderMessage, setOrderMessage] = useState("");
 
   const limit = 15;
-  const isAdmin = user?.role === "SYSTEM_ADMIN";
+  const canGenerate = user?.role === "CENTRAL_STORE_OFFICER";
   const isInstructor = user?.role === "INSTRUCTOR";
 
   const { data, isLoading, isError, error } = useQuery({
@@ -138,10 +138,6 @@ export default function ClassSessions() {
   // on sections they teach. The server enforces this regardless; hiding the
   // control just avoids offering an action that would be refused.
   function canAssign(session: ClassSession): boolean {
-    if (isAdmin) {
-      return true;
-    }
-
     if (isInstructor) {
       return session.routineSlot.section.instructorId === user?.id;
     }
@@ -187,7 +183,7 @@ export default function ClassSessions() {
           </p>
         </div>
 
-        {isAdmin && (
+        {canGenerate && (
           <div className="flex items-end gap-3">
             <div className="w-32">
               <label
@@ -353,7 +349,7 @@ export default function ClassSessions() {
         ) : data?.data.length === 0 ? (
           <div className="p-8 text-center text-sm text-slate-500">
             No class sessions found.{" "}
-            {isAdmin
+            {canGenerate
               ? "Use Generate Sessions to create them from the routine."
               : ""}
           </div>
@@ -380,7 +376,7 @@ export default function ClassSessions() {
                   <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Status
                   </th>
-                  {(isInstructor || isAdmin) && (
+                  {isInstructor && (
                     <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                       Order
                     </th>
@@ -469,7 +465,7 @@ export default function ClassSessions() {
                           {session.status}
                         </span>
                       </td>
-                      {(isInstructor || isAdmin) && (
+                      {isInstructor && (
                         <td className="whitespace-nowrap px-6 py-4 text-sm">
                           {canOrder(session) ? (
                             <button

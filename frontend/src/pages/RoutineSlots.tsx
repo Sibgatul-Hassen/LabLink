@@ -1,4 +1,5 @@
 import axios from "axios";
+import { useAppDialog } from "../components/ui/dialog";
 import { type FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -76,6 +77,7 @@ function toDateInputValue(value: string): string {
 }
 
 export default function RoutineSlots() {
+  const { confirm } = useAppDialog();
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
 
@@ -97,7 +99,7 @@ export default function RoutineSlots() {
   const [importError, setImportError] = useState("");
 
   const limit = 10;
-  const canManage = user?.role === "SYSTEM_ADMIN";
+  const canManage = user?.role === "DEPT_STORE_HEAD";
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["routine-slots", { labFilter, dayFilter, page, limit }],
@@ -260,8 +262,8 @@ export default function RoutineSlots() {
     saveMutation.mutate(payload);
   }
 
-  function handleDelete(slot: RoutineSlot) {
-    const confirmed = window.confirm(
+  async function handleDelete(slot: RoutineSlot) {
+    const confirmed = await confirm(
       `Delete the ${DAY_NAMES[slot.dayOfWeek]} ${slot.startTime} slot for ${slot.section.course.code} Section ${slot.section.name}?`,
     );
 

@@ -346,17 +346,12 @@ describe("Department Quota API Integration Tests", () => {
       expect(res.status).toBe(401);
     });
 
-    it("should restrict STUDENT list to own department", async () => {
+    it("should deny STUDENT quota list", async () => {
       const res = await request(app)
         .get("/api/quotas?category=Quota%20Test")
         .set("Authorization", `Bearer ${studentToken}`);
 
-      expect(res.status).toBe(200);
-      expect(res.body.total).toBe(2);
-
-      for (const quota of res.body.data) {
-        expect(quota.departmentId).toBe(departmentAId);
-      }
+      expect(res.status).toBe(403);
     });
 
     it("should block STUDENT from requesting another department", async () => {
@@ -387,15 +382,12 @@ describe("Department Quota API Integration Tests", () => {
   });
 
   describe("READ ONE - GET /api/quotas/:departmentId/:componentId", () => {
-    it("should allow STUDENT to read own department quota", async () => {
+    it("should deny STUDENT from reading own department quota", async () => {
       const res = await request(app)
         .get(`/api/quotas/${departmentAId}/${componentAId}`)
         .set("Authorization", `Bearer ${studentToken}`);
 
-      expect(res.status).toBe(200);
-      expect(res.body.data.departmentId).toBe(departmentAId);
-      expect(res.body.data.componentId).toBe(componentAId);
-      expect(res.body.data.qty).toBe(5);
+      expect(res.status).toBe(403);
     });
 
     it("should block STUDENT from another department quota", async () => {
@@ -463,7 +455,7 @@ describe("Department Quota API Integration Tests", () => {
 
       const res = await request(app)
         .patch(`/api/quotas/${departmentAId}/${componentAId}`)
-        .set("Authorization", `Bearer ${adminToken}`)
+        .set("Authorization", `Bearer ${centralToken}`)
         .send({
           suggestedQty: 9,
         });
@@ -510,10 +502,10 @@ describe("Department Quota API Integration Tests", () => {
       expect(afterCount).toBe(beforeCount);
     });
 
-    it("should allow SYSTEM_ADMIN to change quota and create another history entry", async () => {
+    it("should allow CENTRAL_STORE_OFFICER to change quota and create another history entry", async () => {
       const res = await request(app)
         .patch(`/api/quotas/${departmentAId}/${componentAId}`)
-        .set("Authorization", `Bearer ${adminToken}`)
+        .set("Authorization", `Bearer ${centralToken}`)
         .send({
           qty: 8,
           reason: "Administrative quota confirmation",
@@ -550,7 +542,7 @@ describe("Department Quota API Integration Tests", () => {
     it("should create a suggested-only quota with zero confirmed qty and no history", async () => {
       const res = await request(app)
         .patch(`/api/quotas/${departmentBId}/${componentBId}`)
-        .set("Authorization", `Bearer ${adminToken}`)
+        .set("Authorization", `Bearer ${centralToken}`)
         .send({
           suggestedQty: 5,
         });
@@ -651,7 +643,7 @@ describe("Department Quota API Integration Tests", () => {
     it("should return quota history newest first", async () => {
       const res = await request(app)
         .get(`/api/quotas/${departmentAId}/${componentAId}/history`)
-        .set("Authorization", `Bearer ${studentToken}`);
+        .set("Authorization", `Bearer ${centralToken}`);
 
       expect(res.status).toBe(200);
       expect(res.body.total).toBe(2);
@@ -660,7 +652,7 @@ describe("Department Quota API Integration Tests", () => {
       expect(res.body.data[0].oldQty).toBe(7);
       expect(res.body.data[0].newQty).toBe(8);
       expect(res.body.data[0].changedBy.email).toBe(
-        "quota-admin@test.com",
+        "quota-central@test.com",
       );
 
       expect(res.body.data[1].oldQty).toBe(5);

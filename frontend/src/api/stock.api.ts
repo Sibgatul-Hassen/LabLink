@@ -29,6 +29,18 @@ interface GetMovementsParams {
   limit?: number;
 }
 
+export interface TransferStockRequest {
+  fromDeptId: string;
+  toDeptId: string;
+  componentId: string;
+  qty: number;
+  note?: string;
+}
+
+export async function transferStock(data: TransferStockRequest): Promise<void> {
+  await apiClient.post("/api/stocks/transfer", data);
+}
+
 export async function getStocks(
   params?: GetStocksParams,
 ): Promise<StockListResponse> {

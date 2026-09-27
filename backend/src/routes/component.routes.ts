@@ -17,11 +17,11 @@ import {
 
 const router = Router();
 
-// POST /api/components - Create (CENTRAL_STORE_OFFICER, SYSTEM_ADMIN only)
+// Central store owns operational catalogue changes.
 router.post(
   "/components",
   requireAuth,
-  requireRole("CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  requireRole("CENTRAL_STORE_OFFICER"),
   departmentScope,
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
@@ -100,11 +100,11 @@ router.get(
   },
 );
 
-// PATCH /api/components/:id - Update (CENTRAL_STORE_OFFICER, SYSTEM_ADMIN only)
+// Central store updates catalogue items.
 router.patch(
   "/components/:id",
   requireAuth,
-  requireRole("CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  requireRole("CENTRAL_STORE_OFFICER"),
   departmentScope,
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
@@ -130,11 +130,11 @@ router.patch(
   },
 );
 
-// DELETE /api/components/:id - Delete (SYSTEM_ADMIN only)
+// Central store soft deletes catalogue items.
 router.delete(
   "/components/:id",
   requireAuth,
-  requireRole("SYSTEM_ADMIN"),
+  requireRole("CENTRAL_STORE_OFFICER"),
   departmentScope,
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
@@ -168,7 +168,7 @@ router.get(
 router.post(
   "/components/:id/substitutes",
   requireAuth,
-  requireRole("CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  requireRole("CENTRAL_STORE_OFFICER"),
   departmentScope,
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
@@ -211,7 +211,7 @@ router.post(
 router.patch(
   "/components/:id/substitutes/:subId",
   requireAuth,
-  requireRole("CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  requireRole("CENTRAL_STORE_OFFICER"),
   departmentScope,
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
@@ -235,7 +235,7 @@ router.patch(
 router.delete(
   "/components/:id/substitutes/:subId",
   requireAuth,
-  requireRole("CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  requireRole("CENTRAL_STORE_OFFICER"),
   departmentScope,
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {

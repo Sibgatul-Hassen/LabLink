@@ -83,7 +83,7 @@ it("routes quota and overdue collection evidence to the responsible roles", asyn
     (call[0] as { data: { type: string; targetRole: string; evidence: Record<string, unknown> } }).data,
   );
   expect(calls).toEqual(expect.arrayContaining([
-    expect.objectContaining({ type: "QUOTA", targetRole: "DEPT_STORE_HEAD" }),
+    expect.objectContaining({ type: "QUOTA", targetRole: "CENTRAL_STORE_OFFICER" }),
     expect.objectContaining({
       type: "COLLECTION_RISK", targetRole: "CENTRAL_STORE_OFFICER",
       evidence: expect.objectContaining({ originalUnitsIssued: 3 }),
@@ -114,7 +114,7 @@ it("suggests a viable substitute and a repeated missing experiment item", async 
   expect(createdTypes()).toEqual(["SUBSTITUTE", "ITEM_LIST"]);
   expect(mock(prisma.suggestion.create)).toHaveBeenCalledWith({
     data: expect.objectContaining({
-      type: "ITEM_LIST", targetRole: "LAB_ASSISTANT",
+      type: "ITEM_LIST", targetRole: "INSTRUCTOR",
       payload: expect.objectContaining({ suggestedQtyPerGroup: 2 }),
       evidence: expect.objectContaining({ sampledOrders: 2 }),
     }),

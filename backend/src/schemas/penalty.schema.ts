@@ -23,13 +23,6 @@ export const penaltyQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(100).default(20),
 });
 
-export const assessPenaltySchema = z.object({
-  requisitionId: z.string().min(1),
-  type: penaltyTypeSchema,
-  componentId: z.string().min(1).optional(),
-  qty: z.number().int().positive().optional(),
-});
-
 export const payPenaltySchema = z.object({
   receiptRef: z.string().trim().min(1).max(100),
 });
@@ -39,4 +32,3 @@ export const waivePenaltySchema = z.object({
 });
 
 export type PenaltyRateInput = z.infer<typeof penaltyRateSchema>;
-export type AssessPenaltyInput = z.infer<typeof assessPenaltySchema>;

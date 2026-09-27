@@ -55,13 +55,13 @@ test("production web server serves SPA routes and forwards API methods and bodie
     const missing = await fetch(`${base}/assets/missing.js`, { headers: { Accept: "text/html" } });
     assert.equal(missing.status, 404);
 
-    const api = await fetch(`${base}/api/penalties/assess`, {
+    const api = await fetch(`${base}/api/penalties/penalty-1/pay`, {
       method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer example" },
-      body: JSON.stringify({ type: "LATE" }),
+      body: JSON.stringify({ receiptRef: "RECEIPT-1" }),
     });
     assert.equal(api.status, 201);
     assert.deepEqual(await api.json(), {
-      method: "POST", path: "/api/penalties/assess", body: '{"type":"LATE"}',
+      method: "POST", path: "/api/penalties/penalty-1/pay", body: '{"receiptRef":"RECEIPT-1"}',
     });
   } finally {
     if (child) {

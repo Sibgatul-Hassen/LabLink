@@ -16,7 +16,6 @@ import {
 const UNSCOPED_ROLES: Role[] = [
   "CENTRAL_STORE_OFFICER",
   "OFFICE_ADMIN",
-  "SYSTEM_ADMIN",
 ];
 
 const borrowRequestInclude = {
@@ -131,8 +130,7 @@ export class BorrowService {
     }
 
     if (
-      !UNSCOPED_ROLES.includes(actor.role) &&
-      actor.departmentId !== borrowerDeptId
+      actor.role !== "DEPT_STORE_HEAD" || actor.departmentId !== borrowerDeptId
     ) {
       throw new Error(
         "You can only raise borrow requests for your own department",
@@ -413,7 +411,7 @@ export class BorrowService {
     }
 
     if (
-      !UNSCOPED_ROLES.includes(actor.role) &&
+      actor.role !== "DEPT_STORE_HEAD" ||
       actor.departmentId !== borrowRequest.lenderDeptId
     ) {
       throw new Error("Only the lending department can approve this request");
@@ -498,7 +496,7 @@ export class BorrowService {
     }
 
     if (
-      !UNSCOPED_ROLES.includes(actor.role) &&
+      actor.role !== "DEPT_STORE_HEAD" ||
       actor.departmentId !== borrowRequest.lenderDeptId
     ) {
       throw new Error("Only the lending department can reject this request");
@@ -596,7 +594,7 @@ export class BorrowService {
     }
 
     if (
-      !UNSCOPED_ROLES.includes(actor.role) &&
+      actor.role !== "DEPT_STORE_HEAD" ||
       actor.departmentId !== borrowRequest.lenderDeptId
     ) {
       throw new Error("Only the lending department can hand over this request");
@@ -701,7 +699,7 @@ export class BorrowService {
     }
 
     if (
-      !UNSCOPED_ROLES.includes(actor.role) &&
+      actor.role !== "DEPT_STORE_HEAD" ||
       actor.departmentId !== borrowRequest.borrowerDeptId
     ) {
       throw new Error("Only the borrowing department can return this request");

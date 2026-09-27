@@ -1,4 +1,5 @@
 import axios from "axios";
+import { useAppDialog } from "../components/ui/dialog";
 import { type FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -41,6 +42,7 @@ function getErrorMessage(error: unknown): string {
 }
 
 export default function Experiments() {
+  const { confirm } = useAppDialog();
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
 
@@ -65,7 +67,7 @@ export default function Experiments() {
   const [deleteError, setDeleteError] = useState("");
 
   const limit = 10;
-  const canManage = user?.role === "SYSTEM_ADMIN";
+  const canManage = user?.role === "DEPT_STORE_HEAD";
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["experiments", { search, courseFilter, page, limit }],
@@ -250,8 +252,8 @@ export default function Experiments() {
     });
   }
 
-  function handleDelete(experiment: Experiment) {
-    const confirmed = window.confirm(
+  async function handleDelete(experiment: Experiment) {
+    const confirmed = await confirm(
       `Delete experiment ${experiment.number} — "${experiment.title}"? Its item list will be removed too.`,
     );
 

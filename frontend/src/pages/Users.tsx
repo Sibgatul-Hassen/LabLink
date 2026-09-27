@@ -1,4 +1,5 @@
 import axios from "axios";
+import { useAppDialog } from "../components/ui/dialog";
 import { type FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -66,6 +67,7 @@ function getErrorMessage(error: unknown): string {
 }
 
 export default function Users() {
+  const { confirm } = useAppDialog();
   const queryClient = useQueryClient();
   const currentUser = useAuthStore((state) => state.user);
 
@@ -244,7 +246,7 @@ export default function Users() {
     passwordMutation.mutate({ id: passwordUser.id, password: passwordValue });
   }
 
-  function handleToggleActive(user: UserAccount) {
+  async function handleToggleActive(user: UserAccount) {
     const isSelf = user.id === currentUser?.id;
 
     if (isSelf && user.isActive) {
@@ -252,7 +254,7 @@ export default function Users() {
     }
 
     if (user.isActive) {
-      const confirmed = window.confirm(
+      const confirmed = await confirm(
         `Deactivate "${user.fullName}"? They will no longer be able to sign in.`,
       );
 

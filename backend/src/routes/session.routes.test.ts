@@ -260,10 +260,10 @@ describe("Class Session API Integration Tests", () => {
   });
 
   describe("GENERATE - POST /api/sessions/generate", () => {
-    it("should deny generation for CENTRAL_STORE_OFFICER", async () => {
+    it("should deny generation for SYSTEM_ADMIN", async () => {
       const res = await request(app)
         .post("/api/sessions/generate")
-        .set("Authorization", `Bearer ${centralStoreToken}`)
+        .set("Authorization", `Bearer ${systemAdminToken}`)
         .send({ horizonDays: 7 });
 
       expect(res.status).toBe(403);
@@ -272,7 +272,7 @@ describe("Class Session API Integration Tests", () => {
     it("should generate one session per slot across a seven day horizon", async () => {
       const res = await request(app)
         .post("/api/sessions/generate")
-        .set("Authorization", `Bearer ${systemAdminToken}`)
+        .set("Authorization", `Bearer ${centralStoreToken}`)
         .send({ horizonDays: 7 });
 
       expect(res.status).toBe(200);
@@ -289,7 +289,7 @@ describe("Class Session API Integration Tests", () => {
     it("should be idempotent when run again over the same horizon", async () => {
       const res = await request(app)
         .post("/api/sessions/generate")
-        .set("Authorization", `Bearer ${systemAdminToken}`)
+        .set("Authorization", `Bearer ${centralStoreToken}`)
         .send({ horizonDays: 7 });
 
       expect(res.status).toBe(200);
@@ -319,7 +319,7 @@ describe("Class Session API Integration Tests", () => {
     it("should reject a non-positive horizon", async () => {
       const res = await request(app)
         .post("/api/sessions/generate")
-        .set("Authorization", `Bearer ${systemAdminToken}`)
+        .set("Authorization", `Bearer ${centralStoreToken}`)
         .send({ horizonDays: 0 });
 
       expect(res.status).toBe(400);
@@ -426,20 +426,19 @@ describe("Class Session API Integration Tests", () => {
     it("should return 404 for a non-existent experiment", async () => {
       const res = await request(app)
         .patch(`/api/sessions/${sessionAId}/experiment`)
-        .set("Authorization", `Bearer ${systemAdminToken}`)
+        .set("Authorization", `Bearer ${instructorAToken}`)
         .send({ experimentId: "nonexistent" });
 
       expect(res.status).toBe(404);
     });
 
-    it("should let a system admin assign to any section", async () => {
+    it("should deny a system admin business assignment", async () => {
       const res = await request(app)
         .patch(`/api/sessions/${sessionAId}/experiment`)
         .set("Authorization", `Bearer ${systemAdminToken}`)
         .send({ experimentId: experimentOneId });
 
-      expect(res.status).toBe(200);
-      expect(res.body.data.experiment.id).toBe(experimentOneId);
+      expect(res.status).toBe(403);
     });
 
     it("should clear the assignment when experimentId is null", async () => {
@@ -462,6 +461,7 @@ describe("Class Session API Integration Tests", () => {
     let draftDeptId: string;
     let draftSessionId: string;
     let draftLabAsstToken: string;
+    let draftInstructorToken: string;
 
     beforeAll(async () => {
       const department = await prisma.department.create({
@@ -475,7 +475,7 @@ describe("Class Session API Integration Tests", () => {
 
       const hashedPassword = await bcryptjs.hash("test123", 10);
 
-      await prisma.user.create({
+      const draftAssistant = await prisma.user.create({
         data: {
           email: draftEmail,
           passwordHash: hashedPassword,
@@ -490,6 +490,20 @@ describe("Class Session API Integration Tests", () => {
         .send({ email: draftEmail, password: "test123" });
       expect(draftLogin.status).toBe(200);
       draftLabAsstToken = draftLogin.body.token;
+
+      const draftInstructor = await prisma.user.create({
+        data: {
+          email: "sess-draft-instructor@test.com",
+          passwordHash: hashedPassword,
+          fullName: "Session Draft Instructor",
+          role: "INSTRUCTOR",
+          departmentId: draftDeptId,
+        },
+      });
+      const instructorLogin = await request(app).post("/api/auth/login").send({
+        email: "sess-draft-instructor@test.com", password: "test123",
+      });
+      draftInstructorToken = instructorLogin.body.token;
 
       const course = await prisma.course.create({
         data: {
@@ -508,6 +522,8 @@ describe("Class Session API Integration Tests", () => {
           name: "DRAFT-A",
           semester: "Spring 2026",
           studentCount: 36,
+          instructorId: draftInstructor.id,
+          labAssistantId: draftAssistant.id,
         },
       });
 
@@ -517,6 +533,7 @@ describe("Class Session API Integration Tests", () => {
           roomNo: "TEST-SESS-DRAFT-LAB",
           groupSize: 4,
           departmentId: draftDeptId,
+          labAssistantId: draftAssistant.id,
         },
       });
 
@@ -571,7 +588,7 @@ describe("Class Session API Integration Tests", () => {
 
       const assign = await request(app)
         .patch(`/api/sessions/${draftSessionId}/experiment`)
-        .set("Authorization", `Bearer ${systemAdminToken}`)
+        .set("Authorization", `Bearer ${draftInstructorToken}`)
         .send({ experimentId: experiment.id });
       expect(assign.status).toBe(200);
     });
@@ -607,6 +624,7 @@ describe("Class Session API Integration Tests", () => {
       await prisma.course.deleteMany({ where: { code: draftCourseCode } });
       await prisma.component.deleteMany({ where: { code: draftComponentCode } });
       await prisma.user.deleteMany({ where: { email: draftEmail } });
+      await prisma.user.deleteMany({ where: { email: "sess-draft-instructor@test.com" } });
       await prisma.department.deleteMany({ where: { code: draftDeptCode } });
     });
 

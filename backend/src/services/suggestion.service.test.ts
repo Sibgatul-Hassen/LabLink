@@ -4,12 +4,13 @@ import { SuggestionService } from "./suggestion.service";
 jest.mock("../lib/prisma", () => ({
   prisma: {
     stock: { findMany: jest.fn() },
-    suggestion: { findMany: jest.fn(), create: jest.fn() },
+    suggestion: { findMany: jest.fn(), count: jest.fn(), create: jest.fn() },
   },
 }));
 
 const stockFindMany = prisma.stock.findMany as unknown as jest.Mock;
 const suggestionFindMany = prisma.suggestion.findMany as unknown as jest.Mock;
+const suggestionCount = prisma.suggestion.count as unknown as jest.Mock;
 const suggestionCreate = prisma.suggestion.create as unknown as jest.Mock;
 
 describe("shortage suggestion generation", () => {
@@ -43,5 +44,19 @@ describe("shortage suggestion generation", () => {
 
     expect(await SuggestionService.generateShortageSuggestions()).toBe(0);
     expect(suggestionCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe("student slot suggestion scope", () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it("queries only slots explicitly tagged for the authenticated student", async () => {
+    suggestionFindMany.mockResolvedValue([]);
+    suggestionCount.mockResolvedValue(0);
+    const result = await SuggestionService.list({ id: "student-a", role: "STUDENT", departmentId: "cse" });
+    expect(result.total).toBe(0);
+    expect(suggestionFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({
+      type: "SLOT", payload: { path: ["studentId"], equals: "student-a" },
+    }) }));
   });
 });

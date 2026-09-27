@@ -9,7 +9,7 @@ const source = [
   'export { useAuthStore } from "./src/store/authStore";',
   'export { orderLiveForSession, cancelRequisition } from "./src/api/requisition.api";',
   'export { updateDamageReport } from "./src/api/damage.api";',
-  'export { assessPenalty } from "./src/api/penalty.api";',
+  'export { payPenalty } from "./src/api/penalty.api";',
 ].join("\n");
 
 const built = esbuild.buildSync({
@@ -50,18 +50,16 @@ test("live ordering sends exact class quantities with the bearer token", async (
   });
 });
 
-test("cancellation, damage review, and penalty assessment target their API routes", async () => {
+test("cancellation, damage review, and penalty payment target their API routes", async () => {
   requests.length = 0;
   await api.cancelRequisition("req-1");
   await api.updateDamageReport("damage-1", "REPAIRED", "Connector replaced");
-  await api.assessPenalty({ requisitionId: "req-1", componentId: "component-1", type: "DAMAGED", qty: 1 });
+  await api.payPenalty("penalty-1", "RECEIPT-1");
   assert.deepEqual(requests.map((request) => [request.method, request.url]), [
     ["post", "/api/requisitions/req-1/cancel"],
     ["patch", "/api/damage-reports/damage-1"],
-    ["post", "/api/penalties/assess"],
+    ["post", "/api/penalties/penalty-1/pay"],
   ]);
   assert.deepEqual(JSON.parse(requests[1].data), { status: "REPAIRED", notes: "Connector replaced" });
-  assert.deepEqual(JSON.parse(requests[2].data), {
-    requisitionId: "req-1", componentId: "component-1", type: "DAMAGED", qty: 1,
-  });
+  assert.deepEqual(JSON.parse(requests[2].data), { receiptRef: "RECEIPT-1" });
 });

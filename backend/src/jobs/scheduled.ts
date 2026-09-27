@@ -54,14 +54,7 @@ export async function draftOvernightRequisitions(now = new Date()): Promise<JobR
           },
         })
       : null;
-    const assistant = assigned ?? await prisma.user.findFirst({
-      where: { role: "LAB_ASSISTANT", departmentId, isActive: true },
-      orderBy: { createdAt: "asc" },
-    });
-    const actor = assistant ?? await prisma.user.findFirst({
-      where: { role: "SYSTEM_ADMIN", isActive: true },
-      orderBy: { createdAt: "asc" },
-    });
+    const actor = assigned;
 
     if (!actor) {
       result.skipped += 1;
@@ -101,7 +94,7 @@ export async function checkLowStock(now = new Date()): Promise<JobResult> {
     }),
     prisma.user.findMany({
       where: {
-        role: { in: ["CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"] }, isActive: true,
+        role: "CENTRAL_STORE_OFFICER", isActive: true,
       },
       select: { id: true },
     }),

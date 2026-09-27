@@ -2,6 +2,8 @@ import { useState } from "react";
 import axios from "axios";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
+import { motion, useReducedMotion } from "framer-motion";
+import { Lightbulb, LoaderCircle, Sparkles } from "lucide-react";
 import {
   decideSuggestion, generateSuggestions, getSuggestions,
   type Suggestion, type SuggestionStatus, type SuggestionType,
@@ -114,10 +116,12 @@ function errorMessage(error: unknown): string {
 }
 
 export default function Suggestions() {
+  const reduceMotion = useReducedMotion();
   const user = useAuthStore((state) => state.user);
-  const permitted = user?.role === "LAB_ASSISTANT" || user?.role === "DEPT_STORE_HEAD" ||
-    user?.role === "CENTRAL_STORE_OFFICER" || user?.role === "SYSTEM_ADMIN";
-  const canGenerate = user?.role === "CENTRAL_STORE_OFFICER" || user?.role === "SYSTEM_ADMIN";
+  const permitted = user?.role === "STUDENT" || user?.role === "INSTRUCTOR" ||
+    user?.role === "LAB_ASSISTANT" || user?.role === "DEPT_STORE_HEAD" ||
+    user?.role === "CENTRAL_STORE_OFFICER";
+  const canGenerate = user?.role === "CENTRAL_STORE_OFFICER";
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<SuggestionStatus | "">("PENDING");
   const [type, setType] = useState<SuggestionType | "">("");
@@ -159,18 +163,20 @@ export default function Suggestions() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
+          <p className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[.14em] text-indigo-700"><Lightbulb size={15} /> Decision workspace</p>
           <h2 className="text-2xl font-bold text-slate-900">Suggestions</h2>
           <p className="mt-1 text-sm text-slate-500">
-            Review the evidence before making a change. Accepting records your decision and feedback.
+            {user?.role === "STUDENT" ? "View schedule suggestions relevant to your department." : "Review the evidence before making a change. Accepting records your decision and feedback."}
           </p>
         </div>
         {canGenerate && (
           <button type="button" disabled={generate.isPending}
             onClick={() => generate.mutate()}
-            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+            className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
+            {generate.isPending ? <LoaderCircle size={16} className="animate-spin" /> : <Sparkles size={16} />}
             {generate.isPending ? "Checking data..." : "Generate suggestions"}
           </button>
         )}
@@ -198,7 +204,7 @@ export default function Suggestions() {
             setType(event.target.value as SuggestionType | ""); setPage(1);
           }} className="mt-1 block rounded-lg border border-slate-300 px-3 py-2 text-sm">
             <option value="">All</option>
-            {TYPES.map((entry) => <option key={entry.value} value={entry.value}>{entry.label}</option>)}
+            {TYPES.filter((entry) => user?.role === "STUDENT" ? entry.value === "SLOT" : user?.role === "INSTRUCTOR" ? entry.value === "ITEM_LIST" : true).map((entry) => <option key={entry.value} value={entry.value}>{entry.label}</option>)}
           </select>
         </label>
       </div>
@@ -207,9 +213,9 @@ export default function Suggestions() {
         : isError ? <p role="alert" className="text-sm text-red-700">Could not load suggestions.</p>
         : data?.data.length === 0 ? <p className="rounded-xl bg-white p-6 text-sm text-slate-500">No suggestions found.</p>
         : <div className="space-y-3">
-          {data?.data.map((suggestion) => {
+          {data?.data.map((suggestion, index) => {
             const view = presentation(suggestion);
-            return <article key={suggestion.id} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+            return <motion.article key={suggestion.id} initial={reduceMotion ? false : { opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .24, delay: Math.min(index * .04, .28) }} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">
@@ -231,7 +237,7 @@ export default function Suggestions() {
               {view.link && <Link to={view.link.to} className="mt-3 inline-block text-sm font-medium text-blue-700 hover:underline">
                 {view.link.label}
               </Link>}
-              {suggestion.status === "PENDING" ? (
+              {suggestion.status === "PENDING" && user?.role !== "STUDENT" && suggestion.targetRole === user?.role ? (
                 <div className="mt-4 space-y-2 border-t border-slate-100 pt-4">
                   <input aria-label={`Feedback for ${view.title}`}
                     value={notes[suggestion.id] ?? ""}
@@ -250,7 +256,7 @@ export default function Suggestions() {
               ) : suggestion.feedback[0]?.note ? (
                 <p className="mt-3 text-sm text-slate-600">Feedback: {suggestion.feedback[0].note}</p>
               ) : null}
-            </article>;
+            </motion.article>;
           })}
         </div>}
 

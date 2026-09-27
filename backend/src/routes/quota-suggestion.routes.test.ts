@@ -500,10 +500,17 @@ describe("Quota Suggestion Engine Integration Tests", () => {
     expect(studentRes.status).toBe(403);
   });
 
+  it("denies SYSTEM_ADMIN operational suggestion generation", async () => {
+    const res = await request(app).post("/api/quotas/suggestions")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ departmentId: departmentAId });
+    expect(res.status).toBe(403);
+  });
+
   it("should calculate peakGroups multiplied by maximum qtyPerGroup", async () => {
     const res = await request(app)
       .post("/api/quotas/suggestions")
-      .set("Authorization", `Bearer ${adminToken}`)
+      .set("Authorization", `Bearer ${centralToken}`)
       .send({ departmentId: departmentAId });
 
     expect(res.status).toBe(200);
@@ -591,7 +598,7 @@ describe("Quota Suggestion Engine Integration Tests", () => {
   it("should use zero peakGroups when the department has no class sessions", async () => {
     const res = await request(app)
       .post("/api/quotas/suggestions")
-      .set("Authorization", `Bearer ${adminToken}`)
+      .set("Authorization", `Bearer ${centralToken}`)
       .send({ departmentId: departmentBId });
 
     expect(res.status).toBe(200);
@@ -625,7 +632,7 @@ describe("Quota Suggestion Engine Integration Tests", () => {
   it("should respect a date range", async () => {
     const res = await request(app)
       .post("/api/quotas/suggestions")
-      .set("Authorization", `Bearer ${adminToken}`)
+      .set("Authorization", `Bearer ${centralToken}`)
       .send({
         departmentId: departmentAId,
         from: "2027-04-01",
@@ -643,7 +650,7 @@ describe("Quota Suggestion Engine Integration Tests", () => {
   it("should reject an invalid date range", async () => {
     const res = await request(app)
       .post("/api/quotas/suggestions")
-      .set("Authorization", `Bearer ${adminToken}`)
+      .set("Authorization", `Bearer ${centralToken}`)
       .send({
         departmentId: departmentAId,
         from: "2027-05-01",
@@ -659,7 +666,7 @@ describe("Quota Suggestion Engine Integration Tests", () => {
   it("should reject an inactive department", async () => {
     const res = await request(app)
       .post("/api/quotas/suggestions")
-      .set("Authorization", `Bearer ${adminToken}`)
+      .set("Authorization", `Bearer ${centralToken}`)
       .send({ departmentId: inactiveDepartmentId });
 
     expect(res.status).toBe(404);

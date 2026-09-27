@@ -1,6 +1,7 @@
 import { Router, Response } from "express";
 
 import { requireAuth } from "../middleware/auth";
+import { requireAcademicScope } from "../middleware/academicScope";
 import { ALL_ROLES, requireRole } from "../middleware/rbac";
 import {
   createCourseSchema,
@@ -12,11 +13,12 @@ import { AuthenticatedRequest } from "../types";
 
 const router = Router();
 
-// POST /api/courses - Create (SYSTEM_ADMIN only)
+// Department heads create courses in their own department.
 router.post(
   "/courses",
   requireAuth,
-  requireRole("SYSTEM_ADMIN"),
+  requireRole("DEPT_STORE_HEAD"),
+  requireAcademicScope("department", "departmentId", "body"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const validated = createCourseSchema.parse(req.body);
@@ -41,14 +43,14 @@ router.post(
   },
 );
 
-// GET /api/courses - List (all authenticated users)
+// Academic readers are scoped by assignment or department.
 router.get(
   "/courses",
-  requireAuth, requireRole(...ALL_ROLES),
+  requireAuth, requireRole("INSTRUCTOR", "LAB_ASSISTANT", "DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER", "OFFICE_ADMIN", "SYSTEM_ADMIN"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const query = listCoursesQuerySchema.parse(req.query);
-      const result = await CourseService.listCourses(query);
+      const result = await CourseService.listCourses(query, req.user!);
 
       res.status(200).json(result);
     } catch (error) {
@@ -57,17 +59,19 @@ router.get(
   },
 );
 
-// GET /api/courses/:id - Get one (all authenticated users)
+// Read one course within the actor's academic scope.
 router.get(
   "/courses/:id",
-  requireAuth, requireRole(...ALL_ROLES),
+  requireAuth, requireRole("INSTRUCTOR", "LAB_ASSISTANT", "DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER", "OFFICE_ADMIN", "SYSTEM_ADMIN"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
-      const course = await CourseService.getCourseById(req.params.id);
+      const course = await CourseService.getCourseById(req.params.id, req.user!);
 
       res.status(200).json({ data: course });
     } catch (error) {
-      if (error instanceof Error && error.message.includes("not found")) {
+      if (error instanceof Error && error.message === "Forbidden") {
+        res.status(403).json({ error: "Forbidden" });
+      } else if (error instanceof Error && error.message.includes("not found")) {
         res.status(404).json({ error: "Course not found" });
       } else {
         res.status(500).json({ error: "Internal server error" });
@@ -76,11 +80,13 @@ router.get(
   },
 );
 
-// PATCH /api/courses/:id - Update (SYSTEM_ADMIN only)
+// Department heads update courses in their own department.
 router.patch(
   "/courses/:id",
   requireAuth,
-  requireRole("SYSTEM_ADMIN"),
+  requireRole("DEPT_STORE_HEAD"),
+  requireAcademicScope("course", "id"),
+  requireAcademicScope("department", "departmentId", "body", true),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const validated = updateCourseSchema.parse(req.body);
@@ -106,11 +112,12 @@ router.patch(
   },
 );
 
-// DELETE /api/courses/:id - Soft delete (SYSTEM_ADMIN only)
+// Department heads soft delete courses in their own department.
 router.delete(
   "/courses/:id",
   requireAuth,
-  requireRole("SYSTEM_ADMIN"),
+  requireRole("DEPT_STORE_HEAD"),
+  requireAcademicScope("course", "id"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       await CourseService.deleteCourse(req.params.id);

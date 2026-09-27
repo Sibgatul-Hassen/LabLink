@@ -1,4 +1,5 @@
 import axios from "axios";
+import { useAppDialog } from "../components/ui/dialog";
 import { Fragment, type FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -9,6 +10,7 @@ import {
   receivePurchaseGoods,
 } from "../api/purchase.api";
 import { useAuthStore } from "../store/authStore";
+import PurchaseActions from "../components/PurchaseActions";
 import type {
   ApprovalDecision,
   ApprovalStep,
@@ -42,16 +44,13 @@ const DECISION_STYLES: Record<ApprovalDecision, string> = {
 };
 
 /**
- * Mirrors GET /purchase-requests/queue's requireRole guard exactly
- * (purchase.routes.ts) — DEPT_STORE_HEAD is NOT included there, even
- * though it holds rung 2 of the approval ladder, so it never sees the
- * queue section on this page, only the general list below it.
+ * Mirrors GET /purchase-requests/queue's requireRole guard.
  */
 function canViewQueue(role: Role | undefined): boolean {
   return (
     role === "CENTRAL_STORE_OFFICER" ||
-    role === "OFFICE_ADMIN" ||
-    role === "SYSTEM_ADMIN"
+    role === "DEPT_STORE_HEAD" ||
+    role === "OFFICE_ADMIN"
   );
 }
 
@@ -91,7 +90,7 @@ function canReceive(
 ): boolean {
   return (
     purchaseRequest.status === "APPROVED" &&
-    (role === "CENTRAL_STORE_OFFICER" || role === "SYSTEM_ADMIN")
+    role === "CENTRAL_STORE_OFFICER"
   );
 }
 
@@ -174,7 +173,7 @@ function PurchaseRequestRow({
           <span
             className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${STATUS_STYLES[purchaseRequest.status]}`}
           >
-            {purchaseRequest.status}
+            {purchaseRequest.status === "APPROVED" ? "AWAITING RECEIPT" : purchaseRequest.status}
           </span>
         </td>
 
@@ -217,7 +216,7 @@ function PurchaseRequestRow({
                 onClick={() => onOpenReceive(purchaseRequest)}
                 className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
               >
-                Receive
+                Receive Goods
               </button>
             )}
           </div>
@@ -280,6 +279,7 @@ function PurchaseRequestRow({
 }
 
 export default function PurchaseRequests() {
+  const { prompt } = useAppDialog();
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
 
@@ -289,6 +289,7 @@ export default function PurchaseRequests() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const [actionError, setActionError] = useState("");
+  const [receiptMessage, setReceiptMessage] = useState("");
 
   const [receiveTarget, setReceiveTarget] = useState<PurchaseRequest | null>(
     null,
@@ -316,8 +317,11 @@ export default function PurchaseRequests() {
   });
 
   const showQueue = canViewQueue(user?.role);
+  const canCreate = user?.role === "LAB_ASSISTANT" || user?.role === "DEPT_STORE_HEAD" ||
+    user?.role === "CENTRAL_STORE_OFFICER";
+  const canAggregate = user?.role === "CENTRAL_STORE_OFFICER";
 
-  const { data: queueData, isLoading: isQueueLoading } = useQuery({
+  const { data: queueData, isLoading: isQueueLoading, isError: isQueueError, error: queueError } = useQuery({
     queryKey: ["purchase-requests-queue"],
     queryFn: getPurchaseRequestQueue,
     enabled: showQueue,
@@ -359,9 +363,15 @@ export default function PurchaseRequests() {
       poNumber: string;
       qtyReceived: number;
     }) => receivePurchaseGoods(id, { poNumber, qtyReceived }),
-    onSuccess: async () => {
+    onSuccess: async (received) => {
       await refresh();
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["components"] }),
+        queryClient.invalidateQueries({ queryKey: ["stocks"] }),
+        queryClient.invalidateQueries({ queryKey: ["stock-movements"] }),
+      ]);
       closeReceiveModal();
+      setReceiptMessage(`${received.receivedQty} ${received.component.unit} of ${received.component.code} received. Stock has increased by ${received.receivedQty}.`);
     },
     onError: (mutationError: unknown) => {
       setReceiveError(getErrorMessage(mutationError));
@@ -372,11 +382,11 @@ export default function PurchaseRequests() {
     setExpandedId((current) => (current === id ? null : id));
   }
 
-  function handleDecide(
+  async function handleDecide(
     purchaseRequest: PurchaseRequest,
     action: "APPROVE" | "REJECT",
   ) {
-    const remarks = window.prompt(
+    const remarks = await prompt(
       action === "APPROVE"
         ? "Optional remarks for this approval:"
         : "Optional remarks for this rejection:",
@@ -397,6 +407,7 @@ export default function PurchaseRequests() {
   }
 
   function openReceiveModal(purchaseRequest: PurchaseRequest) {
+    setReceiptMessage("");
     setReceiveDraft({
       poNumber: "",
       qtyReceived: String(purchaseRequest.qtyNeeded),
@@ -418,6 +429,7 @@ export default function PurchaseRequests() {
     if (!receiveTarget) {
       return;
     }
+    setReceiptMessage("");
 
     if (!receiveDraft.poNumber.trim()) {
       setReceiveError("A PO number is required.");
@@ -444,15 +456,25 @@ export default function PurchaseRequests() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-slate-900">
-          Purchase Requests
-        </h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Purchase requests raised for components short of stock, and their
-          3-rung approval ladder.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-900">Purchase Requests</h2>
+          <p className="mt-1 text-sm text-slate-500">Purchase requests raised for components short of stock, and their 3-rung approval ladder.</p>
+        </div>
+        {canCreate && <PurchaseActions canAggregate={canAggregate} />}
       </div>
+
+      {data?.data.some((purchaseRequest) => purchaseRequest.status === "APPROVED") && (
+        <div role="note" className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+          <strong>Approved requests are awaiting delivery.</strong> Approval does not add stock. When the goods arrive, choose <strong>Receive Goods</strong> and record the PO number and actual quantity received.
+        </div>
+      )}
+
+      {receiptMessage && (
+        <div role="status" className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-medium text-green-800">
+          {receiptMessage}
+        </div>
+      )}
 
       {showQueue && (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -468,6 +490,10 @@ export default function PurchaseRequests() {
           {isQueueLoading ? (
             <div className="p-8 text-center text-sm text-slate-500">
               Loading queue...
+            </div>
+          ) : isQueueError ? (
+            <div role="alert" className="p-8 text-center text-sm text-red-700">
+              Could not load your approval queue: {getErrorMessage(queueError)}
             </div>
           ) : queue.length === 0 ? (
             <div className="p-8 text-center text-sm text-slate-500">

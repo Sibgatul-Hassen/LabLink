@@ -2,7 +2,7 @@ import { Router, Response } from "express";
 import { ZodError } from "zod";
 
 import { requireAuth } from "../middleware/auth";
-import { ALL_ROLES, requireRole } from "../middleware/rbac";
+import { requireRole } from "../middleware/rbac";
 import {
   assignExperimentSchema,
   generateSessionsSchema,
@@ -39,6 +39,7 @@ function handleSessionError(error: unknown, res: Response): void {
   // not a validation failure.
   if (
     error.message === "You can only assign experiments to your own sections"
+    || error.message === "Class session is outside your scope"
   ) {
     res.status(403).json({ error: error.message });
     return;
@@ -72,7 +73,7 @@ function handleSessionError(error: unknown, res: Response): void {
 router.post(
   "/sessions/generate",
   requireAuth,
-  requireRole("SYSTEM_ADMIN"),
+  requireRole("CENTRAL_STORE_OFFICER"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const { horizonDays } = generateSessionsSchema.parse(req.body ?? {});
@@ -86,11 +87,11 @@ router.post(
 
 router.get(
   "/sessions",
-  requireAuth, requireRole(...ALL_ROLES),
+  requireAuth, requireRole("INSTRUCTOR", "LAB_ASSISTANT", "DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER", "OFFICE_ADMIN", "SYSTEM_ADMIN"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const query = listSessionsQuerySchema.parse(req.query);
-      const result = await SessionService.listSessions(query);
+      const result = await SessionService.listSessions(query, req.user!);
       res.status(200).json(result);
     } catch (error) {
       handleSessionError(error, res);
@@ -100,10 +101,10 @@ router.get(
 
 router.get(
   "/sessions/:id",
-  requireAuth, requireRole(...ALL_ROLES),
+  requireAuth, requireRole("INSTRUCTOR", "LAB_ASSISTANT", "DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER", "OFFICE_ADMIN", "SYSTEM_ADMIN"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
-      const session = await SessionService.getSessionById(req.params.id);
+      const session = await SessionService.getSessionById(req.params.id, req.user!);
       res.status(200).json({ data: session });
     } catch (error) {
       handleSessionError(error, res);
@@ -116,7 +117,7 @@ router.get(
 router.patch(
   "/sessions/:id/experiment",
   requireAuth,
-  requireRole("INSTRUCTOR", "SYSTEM_ADMIN"),
+  requireRole("INSTRUCTOR"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       if (!req.user) {
@@ -144,7 +145,7 @@ router.patch(
 router.post(
   "/sessions/:id/draft-requisition",
   requireAuth,
-  requireRole("LAB_ASSISTANT", "SYSTEM_ADMIN"),
+  requireRole("LAB_ASSISTANT"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       if (!req.user) {

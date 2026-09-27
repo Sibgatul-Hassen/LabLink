@@ -213,10 +213,10 @@ describe("Component CRUD API Integration Tests", () => {
   });
 
   describe("DELETE - DELETE /api/components/:id", () => {
-    it("should soft delete component with SYSTEM_ADMIN role", async () => {
+    it("should soft delete component with CENTRAL_STORE_OFFICER role", async () => {
       const res = await request(app)
         .delete(`/api/components/${componentId}`)
-        .set("Authorization", `Bearer ${systemAdminToken}`);
+        .set("Authorization", `Bearer ${authToken}`);
 
       expect(res.status).toBe(204);
     });

@@ -36,9 +36,7 @@ const STATUS_LABELS: Record<BorrowStatus, string> = {
 // Only these roles can manage borrow requests — mirrors borrow.routes.ts guards.
 function canManageBorrows(role: Role | undefined): boolean {
   return (
-    role === "DEPT_STORE_HEAD" ||
-    role === "CENTRAL_STORE_OFFICER" ||
-    role === "SYSTEM_ADMIN"
+    role === "DEPT_STORE_HEAD"
   );
 }
 

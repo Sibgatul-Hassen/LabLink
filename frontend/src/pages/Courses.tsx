@@ -1,4 +1,5 @@
 import axios from "axios";
+import { useAppDialog } from "../components/ui/dialog";
 import { type FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -37,6 +38,7 @@ function getErrorMessage(error: unknown): string {
 }
 
 export default function Courses() {
+  const { confirm } = useAppDialog();
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
 
@@ -52,7 +54,7 @@ export default function Courses() {
   const [deleteError, setDeleteError] = useState("");
 
   const limit = 10;
-  const canManage = user?.role === "SYSTEM_ADMIN";
+  const canManage = user?.role === "DEPT_STORE_HEAD";
 
   const departmentsQuery = useQuery({
     queryKey: ["departments", "course-options"],
@@ -171,8 +173,8 @@ export default function Courses() {
     saveMutation.mutate(payload);
   }
 
-  function handleDelete(course: Course) {
-    const confirmed = window.confirm(
+  async function handleDelete(course: Course) {
+    const confirmed = await confirm(
       `Delete course "${course.code} - ${course.title}"?`,
     );
 

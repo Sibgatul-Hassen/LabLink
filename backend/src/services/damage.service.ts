@@ -1,4 +1,4 @@
-import { DamageStatus, Prisma } from "@prisma/client";
+import { DamageStatus, Prisma, Role } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 
 const include = {
@@ -7,8 +7,20 @@ const include = {
 } satisfies Prisma.DamageReportInclude;
 
 export class DamageService {
-  static async list(status?: DamageStatus, page = 1, limit = 20) {
-    const where: Prisma.DamageReportWhereInput = status ? { status } : {};
+  private static async scope(actor: { id: string; role: Role; departmentId: string | null }, client: typeof prisma | Prisma.TransactionClient = prisma): Promise<Prisma.DamageReportWhereInput> {
+    if (actor.role === "CENTRAL_STORE_OFFICER") return {};
+    const where: Prisma.RequisitionWhereInput = actor.role === "LAB_ASSISTANT"
+      ? { type: "CLASS", classSession: { routineSlot: { OR: [
+      { section: { labAssistantId: actor.id } }, { lab: { labAssistantId: actor.id } },
+    ] } } }
+      : actor.role === "DEPT_STORE_HEAD" ? { departmentId: actor.departmentId ?? "__none__" }
+      : { id: "__none__" };
+    const requisitions = await client.requisition.findMany({ where, select: { id: true } });
+    return { requisitionId: { in: requisitions.map((request) => request.id) } };
+  }
+
+  static async list(actor: { id: string; role: Role; departmentId: string | null }, status?: DamageStatus, page = 1, limit = 20) {
+    const where: Prisma.DamageReportWhereInput = { ...(await this.scope(actor)), ...(status ? { status } : {}) };
     const [data, total] = await Promise.all([
       prisma.damageReport.findMany({
         where,
@@ -25,12 +37,16 @@ export class DamageService {
   static async changeStatus(
     id: string,
     status: DamageStatus,
-    actorId: string,
+    actor: { id: string; role: Role; departmentId: string | null },
     notes?: string,
   ) {
+    if (actor.role !== "LAB_ASSISTANT") throw new Error("Forbidden");
     await prisma.$transaction(async (tx) => {
-      const report = await tx.damageReport.findUnique({ where: { id } });
-      if (!report) throw new Error("Damage report not found");
+      const report = await tx.damageReport.findFirst({ where: { id, ...(await this.scope(actor, tx)) } });
+      if (!report) {
+        if (await tx.damageReport.count({ where: { id } })) throw new Error("Forbidden");
+        throw new Error("Damage report not found");
+      }
 
       const allowed: Record<DamageStatus, DamageStatus[]> = {
         REPORTED: ["UNDER_MAINTENANCE", "WRITTEN_OFF"],
@@ -46,7 +62,7 @@ export class DamageService {
         where: { id, status: report.status },
         data: {
           status,
-          inspectedById: actorId,
+          inspectedById: actor.id,
           inspectedAt: new Date(),
           ...(notes ? { notes } : {}),
         },
@@ -68,7 +84,7 @@ export class DamageService {
             type: "REPAIRED",
             refType: "DAMAGE_REPORT",
             refId: id,
-            performedById: actorId,
+            performedById: actor.id,
             note: notes,
           },
         });

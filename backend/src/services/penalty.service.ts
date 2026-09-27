@@ -1,9 +1,9 @@
 import { PenaltyStatus, PenaltyType, Prisma, Role } from "@prisma/client";
 import { prisma } from "../lib/prisma";
-import { AssessPenaltyInput, PenaltyRateInput } from "../schemas/penalty.schema";
+import { PenaltyRateInput } from "../schemas/penalty.schema";
+import { ReturnRequisitionRequest } from "../schemas/requisition.schema";
 
-const OFFICE_ROLES: Role[] = ["OFFICE_ADMIN", "SYSTEM_ADMIN"];
-const ALL_SCOPE_ROLES: Role[] = ["CENTRAL_STORE_OFFICER", ...OFFICE_ROLES];
+const ALL_SCOPE_ROLES: Role[] = ["CENTRAL_STORE_OFFICER", "OFFICE_ADMIN", "SYSTEM_ADMIN"];
 
 const include = {
   user: { select: { id: true, fullName: true, email: true } },
@@ -54,9 +54,11 @@ export class PenaltyService {
     if (status.blocked) throw new Error("Outstanding penalties have reached the personal requisition limit");
   }
 
-  static async list(actor: { id: string; role: Role }, status?: PenaltyStatus, page = 1, limit = 20) {
+  static async list(actor: { id: string; role: Role; departmentId: string | null }, status?: PenaltyStatus, page = 1, limit = 20) {
     const where: Prisma.PenaltyWhereInput = {
-      ...(!ALL_SCOPE_ROLES.includes(actor.role) ? { userId: actor.id } : {}),
+      ...(ALL_SCOPE_ROLES.includes(actor.role) ? {} : actor.role === "DEPT_STORE_HEAD"
+        ? { user: { departmentId: actor.departmentId ?? "__none__" } }
+        : { userId: actor.id }),
       ...(status ? { status } : {}),
     };
     const [data, total] = await Promise.all([
@@ -81,73 +83,46 @@ export class PenaltyService {
     });
   }
 
-  static async assess(data: AssessPenaltyInput) {
-    return prisma.$transaction(async (tx) => {
-      const requisition = await tx.requisition.findUnique({
-        where: { id: data.requisitionId },
-      });
-      if (!requisition) throw new Error("Requisition not found");
-      if (requisition.type !== "PERSONAL" || requisition.status !== "RETURNED") {
-        throw new Error("Only returned personal requisitions can be assessed");
-      }
-      const rate = await tx.penaltyRate.findUnique({ where: { type: data.type } });
-      if (!rate) throw new Error("Penalty rate is not configured");
-
-      let qty: number;
-      let componentId: string | null = null;
-      let unitCost: number | null = null;
-      if (data.type === "LATE") {
-        if (data.componentId || data.qty) throw new Error("Late penalties use the return date");
-        if (!requisition.returnedAt) throw new Error("Return date is missing");
-        qty = Math.ceil((requisition.returnedAt.getTime() - requisition.neededTo.getTime()) / 86400000);
-        if (qty <= 0) throw new Error("Requisition was returned on time");
-      } else {
-        if (!data.componentId || !data.qty) throw new Error("Component and quantity are required");
-        componentId = data.componentId;
-        qty = data.qty;
-        const component = await tx.component.findUnique({ where: { id: componentId } });
-        if (!component) throw new Error("Component not found");
-        unitCost = component.unitCost?.toNumber() ?? null;
-        const movements = await tx.stockMovement.aggregate({
-          where: {
-            refType: "REQUISITION", refId: requisition.id, componentId,
-            type: data.type === "LOST" ? "LOST" : "DAMAGED",
-          },
-          _sum: { qty: true },
-        });
-        const assessed = await tx.penalty.aggregate({
-          where: { requisitionId: requisition.id, componentId, type: data.type, status: { not: "WAIVED" } },
-          _sum: { qty: true },
-        });
-        if (qty > (movements._sum.qty ?? 0) - (assessed._sum.qty ?? 0)) {
-          throw new Error("Penalty quantity exceeds recorded loss or damage");
-        }
-      }
-
+  /** Called only by the successful personal-return transaction. */
+  static async assessReturnedPersonal(
+    tx: Prisma.TransactionClient,
+    requisition: { id: string; requestedById: string; neededTo: Date },
+    returnedAt: Date,
+    items: ReturnRequisitionRequest["items"],
+  ) {
+    const rates = new Map((await tx.penaltyRate.findMany()).map((rate) => [rate.type, rate]));
+    const charge = async (type: PenaltyType, qty: number, componentId: string | null, unitCost: number | null) => {
+      if (qty <= 0) return;
+      const rate = rates.get(type);
+      // A fresh installation has no rates. Returns must still be recordable;
+      // an unset rate or absent component cost cannot produce a monetary charge.
+      if (!rate || (type !== "LATE" && unitCost === null)) return;
       const amount = calculatePenaltyAmount(
-        data.type, qty, unitCost,
+        type, qty, unitCost,
         rate.ratePerDay?.toNumber() ?? null,
         rate.costFraction?.toNumber() ?? null,
         rate.capAmount?.toNumber() ?? null,
       );
-      if (data.type === "LATE") {
-        const existing = await tx.penalty.findFirst({
-          where: { requisitionId: requisition.id, type: "LATE" },
-        });
-        if (existing) throw new Error("Late penalty already assessed");
-      }
-      return tx.penalty.create({
-        data: {
-          userId: requisition.requestedById,
-          requisitionId: requisition.id,
-          componentId,
-          type: data.type,
-          qty,
-          amount,
-        },
-        include,
-      });
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      await tx.penalty.create({ data: {
+        userId: requisition.requestedById,
+        requisitionId: requisition.id,
+        componentId,
+        type,
+        qty,
+        amount,
+      } });
+    };
+
+    const lateDays = Math.ceil((returnedAt.getTime() - requisition.neededTo.getTime()) / 86400000);
+    await charge("LATE", lateDays, null, null);
+    const ids = items.filter((item) => item.lostQty > 0 || item.damagedQty > 0).map((item) => item.componentId);
+    const components = await tx.component.findMany({ where: { id: { in: ids } }, select: { id: true, unitCost: true } });
+    const costs = new Map(components.map((component) => [component.id, component.unitCost?.toNumber() ?? null]));
+    for (const item of items) {
+      const cost = costs.get(item.componentId) ?? null;
+      await charge("LOST", item.lostQty, item.componentId, cost);
+      await charge("DAMAGED", item.damagedQty, item.componentId, cost);
+    }
   }
 
   static async pay(id: string, actorId: string, receiptRef: string) {
@@ -159,10 +134,16 @@ export class PenaltyService {
     return prisma.penalty.findUniqueOrThrow({ where: { id }, include });
   }
 
-  static async waive(id: string, actorId: string, reason: string) {
+  static async waive(id: string, actor: { id: string; departmentId: string | null }, reason: string) {
+    const penalty = await prisma.penalty.findUnique({
+      where: { id }, select: { user: { select: { departmentId: true } } },
+    });
+    if (penalty && (!actor.departmentId || penalty.user.departmentId !== actor.departmentId)) {
+      throw new Error("Penalty belongs to another department");
+    }
     const result = await prisma.penalty.updateMany({
-      where: { id, status: "OUTSTANDING" },
-      data: { status: "WAIVED", waivedById: actorId, waivedReason: reason },
+      where: { id, status: "OUTSTANDING", user: { departmentId: actor.departmentId ?? "__none__" } },
+      data: { status: "WAIVED", waivedById: actor.id, waivedReason: reason },
     });
     if (result.count !== 1) throw new Error("Outstanding penalty not found");
     return prisma.penalty.findUniqueOrThrow({ where: { id }, include });

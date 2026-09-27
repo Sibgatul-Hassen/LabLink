@@ -13,7 +13,6 @@ import {
 const UNSCOPED_ROLES: Role[] = [
   "CENTRAL_STORE_OFFICER",
   "OFFICE_ADMIN",
-  "SYSTEM_ADMIN",
 ];
 
 /**
@@ -21,10 +20,8 @@ const UNSCOPED_ROLES: Role[] = [
  * CENTRAL_STORE_OFFICER sees every purchase request in scopeFilter (it
  * oversees purchasing broadly), but the whole point of the queue is
  * showing that role only the rung actually waiting on its own decision.
- * OFFICE_ADMIN and SYSTEM_ADMIN are administrative oversight roles here,
- * so they see every pending rung regardless of which role it's assigned to.
+ * OFFICE_ADMIN sees only the final approval rung.
  */
-const QUEUE_OVERSIGHT_ROLES: Role[] = ["OFFICE_ADMIN", "SYSTEM_ADMIN"];
 
 /**
  * Task 5.11. The brief's four buckets are CRITICAL / HIGH / MEDIUM / LOW,
@@ -44,22 +41,18 @@ const URGENCY_RANK: Record<Urgency, number> = {
 };
 
 /**
- * Task 5.12's 3-rung approval ladder, keyed by ApprovalStep.level:
- * rung 1 (CENTRAL_STORE_OFFICER) confirms the department is really out,
- * rung 2 (DEPT_STORE_HEAD) endorses the purchase, rung 3 (OFFICE_ADMIN)
- * approves and buys. No field anywhere derives this (ApprovalStep.
- * approverRole has no default) — it is this service's own policy.
+ * Three-rung V6 approval ladder: requesting department head, central store,
+ * then office administration. Departmentless office reorders start at rung 2.
  */
 const RUNG_APPROVER_ROLES: Record<number, Role> = {
-  1: "CENTRAL_STORE_OFFICER",
-  2: "DEPT_STORE_HEAD",
+  1: "DEPT_STORE_HEAD",
+  2: "CENTRAL_STORE_OFFICER",
   3: "OFFICE_ADMIN",
 };
 
 const FINAL_RUNG_LEVEL = 3;
 
 /** Task 5.8's first-approver policy — now just rung 1 of the ladder. */
-const FIRST_APPROVAL_ROLE: Role = RUNG_APPROVER_ROLES[1];
 
 /** No SLA concept exists elsewhere in this codebase; a week is a simple,
  *  documented default for a first purchasing decision. */
@@ -114,6 +107,26 @@ export interface PurchaseActor {
 }
 
 export class PurchaseService {
+  private static async belongsToDepartment(
+    request: { requisitionId: string | null; raisedById: string },
+    departmentId: string | null,
+    client: AvailabilityQueryClient,
+  ): Promise<boolean> {
+    if (!departmentId) return false;
+    if (request.requisitionId) {
+      const requisition = await client.requisition.findUnique({
+        where: { id: request.requisitionId },
+        select: { departmentId: true },
+      });
+      return requisition?.departmentId === departmentId;
+    }
+    const raiser = await client.user.findUnique({
+      where: { id: request.raisedById },
+      select: { departmentId: true },
+    });
+    return raiser?.departmentId === departmentId;
+  }
+
   /**
    * PurchaseRequest carries no departmentId of its own — only raisedById and
    * an optional requisitionId. So a department-scoped actor sees what they
@@ -121,19 +134,27 @@ export class PurchaseService {
    * to their own department (e.g. a tier-4 purchase request the resolver
    * auto-raised on a colleague's requisition). Unscoped roles see everything.
    */
-  private static scopeFilter(
+  private static async scopeFilter(
     actor: PurchaseActor,
-  ): Prisma.PurchaseRequestWhereInput {
+  ): Promise<Prisma.PurchaseRequestWhereInput> {
     if (UNSCOPED_ROLES.includes(actor.role)) {
       return {};
     }
 
-    return {
-      OR: [
-        { raisedById: actor.id },
-        { requisition: { departmentId: actor.departmentId ?? "__none__" } },
-      ],
-    };
+    if (actor.role === "DEPT_STORE_HEAD" && actor.departmentId) {
+      const colleagues = await prisma.user.findMany({
+        where: { departmentId: actor.departmentId },
+        select: { id: true },
+      });
+      return {
+        OR: [
+          { raisedById: { in: colleagues.map((user) => user.id) } },
+          { requisition: { departmentId: actor.departmentId } },
+        ],
+      };
+    }
+
+    return { raisedById: actor.id };
   }
 
   /**
@@ -162,6 +183,12 @@ export class PurchaseService {
       throw new Error("Component not found");
     }
 
+    const raiser = await client.user.findUnique({
+      where: { id: raisedById },
+      select: { departmentId: true, department: { select: { isOffice: true } } },
+    });
+    let originDepartmentId = raiser?.department?.isOffice ? null : raiser?.departmentId ?? null;
+
     if (data.requisitionId) {
       const requisition = await client.requisition.findUnique({
         where: { id: data.requisitionId },
@@ -170,21 +197,29 @@ export class PurchaseService {
       if (!requisition) {
         throw new Error("Requisition not found");
       }
+      if (originDepartmentId && originDepartmentId !== requisition.departmentId) {
+        throw new Error("Requisition belongs to another department");
+      }
+      originDepartmentId = requisition.departmentId;
     }
 
-    await client.purchaseRequest.create({
+    // Office-wide automatic reorders have no requesting department and begin
+    // with central approval. Department requests retain the full three rungs.
+    const firstLevel = originDepartmentId ? 1 : 2;
+
+    const created = await client.purchaseRequest.create({
       data: {
         requisitionId: data.requisitionId ?? null,
         componentId: data.componentId,
         qtyNeeded: data.qtyRequested,
         raisedById,
         status: "PENDING",
-        currentLevel: 1,
+        currentLevel: firstLevel,
         steps: {
           create: [
             {
-              level: 1,
-              approverRole: FIRST_APPROVAL_ROLE,
+              level: firstLevel,
+              approverRole: RUNG_APPROVER_ROLES[firstLevel],
               decision: "PENDING",
               dueAt: new Date(Date.now() + FIRST_APPROVAL_SLA_MS),
               remarks: data.reason,
@@ -198,7 +233,7 @@ export class PurchaseService {
     // same component rather than leaving duplicates lying around. Always
     // safe to call: with nothing else pending, it just returns what was
     // created above unchanged.
-    return this.aggregatePurchaseRequests(data.componentId, client);
+    return this.aggregatePurchaseRequests(data.componentId, client, created.id);
   }
 
   /**
@@ -269,10 +304,11 @@ export class PurchaseService {
   static async aggregatePurchaseRequests(
     componentId: string,
     client: AvailabilityQueryClient = prisma,
+    targetId?: string,
   ): Promise<PurchaseRequestWithRelations> {
     const pending = await client.purchaseRequest.findMany({
       where: { componentId, status: "PENDING" },
-      include: { steps: true },
+      include: { steps: true, requisition: { select: { departmentId: true } } },
       orderBy: { createdAt: "asc" },
     });
 
@@ -280,17 +316,31 @@ export class PurchaseService {
       throw new Error("No pending purchase requests found for this component");
     }
 
-    const [survivor, ...duplicates] = pending;
+    const raisers = await client.user.findMany({
+      where: { id: { in: pending.map((request) => request.raisedById) } },
+      select: { id: true, departmentId: true, department: { select: { isOffice: true } } },
+    });
+    const raiserDepartments = new Map(
+      raisers.map((user) => [user.id, user.department?.isOffice ? null : user.departmentId]),
+    );
+    const departmentOf = (request: (typeof pending)[number]) =>
+      request.requisition?.departmentId ?? raiserDepartments.get(request.raisedById) ?? null;
+    const target = targetId ? pending.find((request) => request.id === targetId) : pending[0];
+    if (!target) throw new Error("Purchase request not found");
+    const sameOrigin = pending.filter((request) =>
+      departmentOf(request) === departmentOf(target) && request.currentLevel === target.currentLevel,
+    );
+    const [survivor, ...duplicates] = sameOrigin;
 
     if (duplicates.length > 0) {
-      const totalQty = pending.reduce((sum, pr) => sum + pr.qtyNeeded, 0);
+      const totalQty = sameOrigin.reduce((sum, pr) => sum + pr.qtyNeeded, 0);
 
       await client.purchaseRequest.update({
         where: { id: survivor.id },
         data: { qtyNeeded: totalQty },
       });
 
-      const survivorStep = survivor.steps.find((step) => step.level === 1);
+      const survivorStep = survivor.steps.find((step) => step.level === survivor.currentLevel);
 
       if (survivorStep) {
         const note =
@@ -315,7 +365,7 @@ export class PurchaseService {
         });
 
         const duplicateStep = duplicate.steps.find(
-          (step) => step.level === 1,
+          (step) => step.level === duplicate.currentLevel,
         );
 
         if (duplicateStep) {
@@ -413,7 +463,7 @@ export class PurchaseService {
     const limit = Number(query.limit) || 20;
 
     const where: Prisma.PurchaseRequestWhereInput = {
-      ...this.scopeFilter(actor),
+      ...(await this.scopeFilter(actor)),
     };
 
     if (query.status) {
@@ -451,11 +501,14 @@ export class PurchaseService {
       // Scope is part of the lookup, so an out-of-scope record reads as
       // absent rather than forbidden — matches every other getById in this
       // codebase.
-      where: { id, ...this.scopeFilter(actor) },
+      where: { id, ...(await this.scopeFilter(actor)) },
       include: purchaseRequestInclude,
     });
 
     if (!purchaseRequest) {
+      if (await prisma.purchaseRequest.count({ where: { id } })) {
+        throw new Error("Purchase request belongs to another department");
+      }
       throw new Error("Purchase request not found");
     }
 
@@ -471,12 +524,8 @@ export class PurchaseService {
    * which Prisma can't express without raw SQL), so this fetches every
    * PENDING request with its steps and filters + sorts in memory.
    *
-   * Only CENTRAL_STORE_OFFICER exists as an approverRole today —
-   * createPurchaseRequest always names it as the level-1 approver, and
-   * nothing in this codebase yet advances currentLevel past 1 to name any
-   * other role — but the filter is written generically for when that
-   * changes. See QUEUE_OVERSIGHT_ROLES for why OFFICE_ADMIN/SYSTEM_ADMIN
-   * see every rung while CENTRAL_STORE_OFFICER sees only its own.
+   * The queue follows the pending step's approverRole at each rung.
+   * Every role sees only the current rung assigned to it.
    */
   static async getQueue(
     actor: PurchaseActor,
@@ -495,13 +544,17 @@ export class PurchaseService {
         return false;
       }
 
-      return (
-        QUEUE_OVERSIGHT_ROLES.includes(actor.role) ||
-        currentStep.approverRole === actor.role
-      );
+      return currentStep.approverRole === actor.role;
     });
 
-    return this.sortByUrgency(atCurrentRung).map((pr) =>
+    const visible = actor.role === "DEPT_STORE_HEAD"
+      ? await Promise.all(atCurrentRung.map(async (request) => ({
+          request,
+          allowed: await this.belongsToDepartment(request, actor.departmentId, prisma),
+        })))
+      : atCurrentRung.map((request) => ({ request, allowed: true }));
+
+    return this.sortByUrgency(visible.filter((entry) => entry.allowed).map((entry) => entry.request)).map((pr) =>
       this.withComputedUrgency(pr),
     );
   }
@@ -514,13 +567,7 @@ export class PurchaseService {
    * instruction to verify). Both are used here under their real names.
    *
    * "Role must match current rung's approverRole" is enforced literally —
-   * there is no SYSTEM_ADMIN override, even though SYSTEM_ADMIN is one of
-   * the route's allowed callers (see purchase.routes.ts): the brief states
-   * "Only the correct role for that rung may act" with no stated exception,
-   * and explicitly tests OFFICE_ADMIN being rejected for acting outside its
-   * own rung. Since no rung is ever assigned to SYSTEM_ADMIN, that means
-   * SYSTEM_ADMIN can never actually decide a purchase request today — flag
-   * this to the user if a break-glass override was actually intended.
+   * SYSTEM_ADMIN is outside the ladder and has no override.
    */
   static async decidePurchaseRequest(
     purchaseRequestId: string,
@@ -557,6 +604,10 @@ export class PurchaseService {
         throw new Error(
           "Role does not match the approver for this purchase request's current rung",
         );
+      }
+      if (actingUser.role === "DEPT_STORE_HEAD" &&
+          !(await this.belongsToDepartment(purchaseRequest, actingUser.departmentId, tx))) {
+        throw new Error("Purchase request belongs to another department");
       }
 
       // Preserve whatever remarks the step already carried (the raiser's
@@ -640,8 +691,7 @@ export class PurchaseService {
         // Task 5.20. Fully approved — no rung is left to notify, so this
         // notifies whichever role actually goes on to receive the goods:
         // CENTRAL_STORE_OFFICER, the only role receiveGoods() (Task 5.15)
-        // lets call it (besides SYSTEM_ADMIN, an override role rather than
-        // the one that would routinely do this).
+        // lets call it.
         await NotificationService.notifyRole(
           "CENTRAL_STORE_OFFICER",
           {

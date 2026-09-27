@@ -162,9 +162,7 @@ export async function getRequisitionResolution(
 
 // Lives here despite the /api/sessions path (per the brief) since it
 // returns — and is conceptually about creating — a Requisition, matching
-// every other function in this file. Gated server-side to LAB_ASSISTANT
-// and SYSTEM_ADMIN (session.routes.ts), the same roles that can raise a
-// CLASS requisition by hand.
+// every other function in this file. The API requires an assigned lab assistant.
 export async function draftRequisitionForSession(
   sessionId: string,
 ): Promise<Requisition> {

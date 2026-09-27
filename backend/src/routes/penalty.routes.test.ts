@@ -12,7 +12,9 @@ app.use("/api", authRouter, penaltyRouter, requisitionRouter);
 
 const studentEmail = "penalty-gate-student@test.com";
 const adminEmail = "penalty-gate-admin@test.com";
+const centralEmail = "penalty-gate-central@test.com";
 const departmentCode = "TEST-PENALTY-GATE";
+const componentCode = "TEST-PENALTY-RETURN";
 const window = {
   neededFrom: "2027-09-10T09:00:00.000Z",
   neededTo: "2027-09-10T11:00:00.000Z",
@@ -22,15 +24,21 @@ describe("personal requisition penalty threshold API", () => {
   let studentId: string;
   let studentToken: string;
   let adminToken: string;
+  let centralToken: string;
   let priorRates: Awaited<ReturnType<typeof prisma.penaltyRate.findMany>>;
 
   async function cleanup(): Promise<void> {
     const users = await prisma.user.findMany({
-      where: { email: { in: [studentEmail, adminEmail] } }, select: { id: true },
+      where: { email: { in: [studentEmail, adminEmail, centralEmail] } }, select: { id: true },
     });
     const userIds = users.map((user) => user.id);
     await prisma.penalty.deleteMany({ where: { userId: { in: userIds } } });
+    await prisma.damageReport.deleteMany({ where: { component: { code: componentCode } } });
+    await prisma.stockMovement.deleteMany({ where: { component: { code: componentCode } } });
+    await prisma.requisitionLine.deleteMany({ where: { component: { code: componentCode } } });
     await prisma.requisition.deleteMany({ where: { requestedById: { in: userIds } } });
+    await prisma.stock.deleteMany({ where: { component: { code: componentCode } } });
+    await prisma.component.deleteMany({ where: { code: componentCode } });
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
     await prisma.department.deleteMany({ where: { code: departmentCode } });
   }
@@ -51,12 +59,19 @@ describe("personal requisition penalty threshold API", () => {
       email: adminEmail, fullName: "Penalty Admin", passwordHash,
       role: "SYSTEM_ADMIN",
     } });
+    await prisma.user.create({ data: {
+      email: centralEmail, fullName: "Penalty Central", passwordHash,
+      role: "CENTRAL_STORE_OFFICER",
+    } });
     const studentLogin = await request(app).post("/api/auth/login")
       .send({ email: studentEmail, password: "Password123!" });
     const adminLogin = await request(app).post("/api/auth/login")
       .send({ email: adminEmail, password: "Password123!" });
+    const centralLogin = await request(app).post("/api/auth/login")
+      .send({ email: centralEmail, password: "Password123!" });
     studentToken = studentLogin.body.token as string;
     adminToken = adminLogin.body.token as string;
+    centralToken = centralLogin.body.token as string;
   });
 
   afterAll(async () => {
@@ -114,7 +129,7 @@ describe("personal requisition penalty threshold API", () => {
       .set("Authorization", `Bearer ${adminToken}`)
       .send({ type: "LATE", ratePerDay: 10, blockThreshold: 50 });
     const paid = await request(app).post(`/api/penalties/${late.id}/pay`)
-      .set("Authorization", `Bearer ${adminToken}`)
+      .set("Authorization", `Bearer ${centralToken}`)
       .send({ receiptRef: "TEST-RECEIPT" });
     expect(paid.status).toBe(200);
     const unblocked = await request(app).get("/api/penalties/block-status")
@@ -125,5 +140,37 @@ describe("personal requisition penalty threshold API", () => {
     const allowed = await request(app).post("/api/requisitions")
       .set("Authorization", `Bearer ${studentToken}`).send(createBody);
     expect(allowed.status).toBe(201);
+  });
+
+  it("automatically assesses late, lost, and damaged personal returns once", async () => {
+    await prisma.penaltyRate.upsert({ where: { type: "LATE" }, create: { type: "LATE", ratePerDay: 10 }, update: { ratePerDay: 10 } });
+    await prisma.penaltyRate.upsert({ where: { type: "LOST" }, create: { type: "LOST", costFraction: 1 }, update: { costFraction: 1, capAmount: null } });
+    await prisma.penaltyRate.upsert({ where: { type: "DAMAGED" }, create: { type: "DAMAGED", costFraction: 0.5 }, update: { costFraction: 0.5 } });
+    const component = await prisma.component.create({ data: { code: componentCode, name: "Penalty test meter", category: "Test", unitCost: 100 } });
+    await prisma.stock.create({ data: { componentId: component.id, onHand: 0, spareQty: 0, reorderPoint: 0 } });
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: studentId } });
+    const requisition = await prisma.requisition.create({ data: {
+      type: "PERSONAL", status: "ISSUED", requestedById: studentId, departmentId: user.departmentId!,
+      neededFrom: new Date("2020-01-01T09:00:00.000Z"), neededTo: new Date("2020-01-02T09:00:00.000Z"),
+      lines: { create: { componentId: component.id, qtyNeeded: 2, qtyIssued: 2 } },
+    } });
+    const manual = await request(app).post("/api/penalties/assess")
+      .set("Authorization", `Bearer ${centralToken}`).send({ requisitionId: requisition.id, type: "LATE" });
+    expect(manual.status).toBe(404);
+    const returned = await request(app).post(`/api/requisitions/${requisition.id}/return`)
+      .set("Authorization", `Bearer ${centralToken}`).send({ items: [{
+        componentId: component.id, goodQty: 0, damagedQty: 1, lostQty: 1, usedUpQty: 0,
+      }] });
+    expect(returned.status).toBe(200);
+    const penalties = await prisma.penalty.findMany({ where: { requisitionId: requisition.id } });
+    expect(penalties.map((penalty) => penalty.type).sort()).toEqual(["DAMAGED", "LATE", "LOST"]);
+    expect(penalties.find((penalty) => penalty.type === "DAMAGED")?.amount.toFixed(2)).toBe("50.00");
+    expect(penalties.find((penalty) => penalty.type === "LOST")?.amount.toFixed(2)).toBe("100.00");
+    const again = await request(app).post(`/api/requisitions/${requisition.id}/return`)
+      .set("Authorization", `Bearer ${centralToken}`).send({ items: [{
+        componentId: component.id, goodQty: 0, damagedQty: 1, lostQty: 1, usedUpQty: 0,
+      }] });
+    expect(again.status).toBe(400);
+    expect(await prisma.penalty.count({ where: { requisitionId: requisition.id } })).toBe(3);
   });
 });

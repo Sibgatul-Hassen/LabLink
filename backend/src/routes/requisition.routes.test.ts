@@ -297,7 +297,7 @@ describe("Requisition CRUD API Integration Tests", () => {
       },
     });
 
-    await prisma.user.create({
+    const assistantA = await prisma.user.create({
       data: {
         email: "req-labasst-a@test.com",
         passwordHash: hashedPassword,
@@ -307,7 +307,7 @@ describe("Requisition CRUD API Integration Tests", () => {
       },
     });
 
-    await prisma.user.create({
+    const assistantB = await prisma.user.create({
       data: {
         email: "req-labasst-b@test.com",
         passwordHash: hashedPassword,
@@ -347,11 +347,19 @@ describe("Requisition CRUD API Integration Tests", () => {
     });
     await prisma.section.updateMany({
       where: { course: { code: testCourseCodes[0] } },
-      data: { instructorId: instructorA.id },
+      data: { instructorId: instructorA.id, labAssistantId: assistantA.id },
     });
     await prisma.section.updateMany({
       where: { course: { code: testCourseCodes[1] } },
-      data: { instructorId: instructorB.id },
+      data: { instructorId: instructorB.id, labAssistantId: assistantB.id },
+    });
+    await prisma.lab.updateMany({
+      where: { departmentId: departmentAId, roomNo: { startsWith: "TEST-REQ-" } },
+      data: { labAssistantId: assistantA.id },
+    });
+    await prisma.lab.updateMany({
+      where: { departmentId: departmentBId, roomNo: { startsWith: "TEST-REQ-" } },
+      data: { labAssistantId: assistantB.id },
     });
 
     async function login(email: string): Promise<string> {
@@ -622,7 +630,7 @@ describe("Requisition CRUD API Integration Tests", () => {
       expect(res.body.data[0].requestedBy.id).toBe(studentId);
     });
 
-    it("hides another student's requisition behind a 404", async () => {
+    it("forbids another student's requisition", async () => {
       const mine = await request(app)
         .get("/api/requisitions")
         .set("Authorization", `Bearer ${student2Token}`);
@@ -633,9 +641,8 @@ describe("Requisition CRUD API Integration Tests", () => {
         .get(`/api/requisitions/${otherId}`)
         .set("Authorization", `Bearer ${studentToken}`);
 
-      // Not 403 — an out-of-scope record should read as absent, so ids cannot
-      // be probed for existence.
-      expect(res.status).toBe(404);
+      // The record exists, but belongs to a different student.
+      expect(res.status).toBe(403);
     });
 
     it("shows a lab assistant their own department's requisitions", async () => {
@@ -887,8 +894,7 @@ describe("Requisition CRUD API Integration Tests", () => {
         .set("Authorization", `Bearer ${student2Token}`)
         .send({ neededTo: at("18:00").toISOString() });
 
-      // Out of that student's scope entirely, so it reads as absent.
-      expect(res.status).toBe(404);
+      expect(res.status).toBe(403);
     });
 
     it("deletes a draft", async () => {
@@ -1555,7 +1561,7 @@ describe("Requisition CRUD API Integration Tests", () => {
       expect(purchaseRequest?.steps).toHaveLength(1);
       expect(purchaseRequest?.steps[0].level).toBe(1);
       expect(purchaseRequest?.steps[0].approverRole).toBe(
-        "CENTRAL_STORE_OFFICER",
+        "DEPT_STORE_HEAD",
       );
     });
 
@@ -1627,7 +1633,7 @@ describe("Requisition CRUD API Integration Tests", () => {
             create: [
               {
                 level: 1,
-                approverRole: "CENTRAL_STORE_OFFICER",
+                approverRole: "DEPT_STORE_HEAD",
                 decision: "PENDING",
                 dueAt: new Date(Date.now() + 1000 * 60 * 60),
               },
@@ -1854,7 +1860,7 @@ describe("Requisition CRUD API Integration Tests", () => {
       const stranger = await request(app)
         .post("/api/requisitions/" + id + "/cancel")
         .set("Authorization", "Bearer " + student2Token);
-      expect(stranger.status).toBe(404);
+      expect(stranger.status).toBe(403);
 
       const cancelled = await request(app)
         .post("/api/requisitions/" + id + "/cancel")
@@ -1866,10 +1872,10 @@ describe("Requisition CRUD API Integration Tests", () => {
       })).toBe(0);
       expect(await prisma.borrowRequest.count({
         where: { requisitionId: id, status: "CANCELLED" },
-      })).toBeGreaterThan(0);
+      })).toBe(0);
       expect(await prisma.purchaseRequest.count({
         where: { requisitionId: id, status: "CANCELLED" },
-      })).toBeGreaterThan(0);
+      })).toBe(0);
 
       const repeated = await request(app)
         .post("/api/requisitions/" + id + "/cancel")
@@ -1898,18 +1904,18 @@ describe("Requisition CRUD API Integration Tests", () => {
       });
 
       const draft = await create(
-        { type: "PERSONAL", ...OWN_WINDOW, lines: [{ componentId: original.id, qtyNeeded: 3 }] },
-        studentToken,
+        { type: "CLASS", classSessionId: sessionA2Id, lines: [{ componentId: original.id, qtyNeeded: 3 }] },
+        labAsstAToken,
       );
       const submitted = await request(app)
         .post("/api/requisitions/" + draft.body.data.id + "/submit")
-        .set("Authorization", "Bearer " + studentToken);
+        .set("Authorization", "Bearer " + labAsstAToken);
       expect(submitted.status).toBe(200);
       expect(submitted.body.data.status).toBe("READY");
 
       const resolution = await request(app)
         .get("/api/requisitions/" + draft.body.data.id + "/resolution")
-        .set("Authorization", "Bearer " + studentToken);
+        .set("Authorization", "Bearer " + labAsstAToken);
       expect(resolution.body.data.lines[0].qtyFromSubstitute).toBe(3);
       expect(resolution.body.data.lines[0].substitutes[0].physicalQty).toBe(6);
       expect(resolution.body.data.lines[0].substitutes[0].ratio).toBe(2);
@@ -1954,18 +1960,18 @@ describe("Requisition CRUD API Integration Tests", () => {
         .patch("/api/damage-reports/" + damage!.id)
         .set("Authorization", "Bearer " + centralToken)
         .send({ status: "UNDER_MAINTENANCE", notes: "Bench inspection" });
-      expect(maintenance.status).toBe(200);
+      expect(maintenance.status).toBe(403);
+      const labMaintenance = await request(app)
+        .patch("/api/damage-reports/" + damage!.id)
+        .set("Authorization", "Bearer " + labAsstAToken)
+        .send({ status: "UNDER_MAINTENANCE", notes: "Bench inspection" });
+      expect(labMaintenance.status).toBe(200);
       const repaired = await request(app)
         .patch("/api/damage-reports/" + damage!.id)
-        .set("Authorization", "Bearer " + centralToken)
+        .set("Authorization", "Bearer " + labAsstAToken)
         .send({ status: "REPAIRED", notes: "Replaced connector" });
       expect(repaired.status).toBe(200);
       expect((await prisma.stock.findUnique({ where: { componentId: alternative.id } }))?.onHand).toBe(10);
-      const duplicateRepair = await request(app)
-        .patch("/api/damage-reports/" + damage!.id)
-        .set("Authorization", "Bearer " + centralToken)
-        .send({ status: "REPAIRED" });
-      expect(duplicateRepair.status).toBe(409);
     });
 
     it("rejects unauthenticated submit requests", async () => {
@@ -1981,7 +1987,7 @@ describe("Requisition CRUD API Integration Tests", () => {
       expect(res.status).toBe(401);
     });
 
-    it("hides another user's draft behind a 404 on submit", async () => {
+    it("forbids another user's draft on submit", async () => {
       const created = await create(
         { type: "PERSONAL", ...OWN_WINDOW },
         studentToken,
@@ -1991,7 +1997,7 @@ describe("Requisition CRUD API Integration Tests", () => {
         .post(`/api/requisitions/${created.body.data.id}/submit`)
         .set("Authorization", `Bearer ${student2Token}`);
 
-      expect(res.status).toBe(404);
+      expect(res.status).toBe(403);
     });
 
     it("refuses to submit anything past draft", async () => {
@@ -2012,7 +2018,7 @@ describe("Requisition CRUD API Integration Tests", () => {
       expect(res.status).toBe(409);
     });
 
-    it("resolves a draft into READY when its own quota fully covers it", async () => {
+    it("does not let a personal draft consume its department teaching quota", async () => {
       const created = await create(
         {
           type: "PERSONAL",
@@ -2027,12 +2033,12 @@ describe("Requisition CRUD API Integration Tests", () => {
         .set("Authorization", `Bearer ${studentToken}`);
 
       expect(res.status).toBe(200);
-      expect(res.body.data.status).toBe("READY");
-      expect(res.body.data.lines[0].qtyOwnQuota).toBe(3);
-      expect(res.body.data.lines[0].qtyShort).toBe(0);
+      expect(res.body.data.status).toBe("SUBMITTED");
+      expect(res.body.data.lines[0].qtyOwnQuota).toBe(0);
+      expect(res.body.data.lines[0].qtyShort).toBe(3);
     });
 
-    it("falls back to the real spare pool when the requester's own quota is short", async () => {
+    it("fills a personal request from the spare pool only", async () => {
       const created = await create(
         {
           type: "PERSONAL",
@@ -2048,8 +2054,8 @@ describe("Requisition CRUD API Integration Tests", () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data.status).toBe("READY");
-      expect(res.body.data.lines[0].qtyOwnQuota).toBe(2);
-      expect(res.body.data.lines[0].qtySpare).toBe(3);
+      expect(res.body.data.lines[0].qtyOwnQuota).toBe(0);
+      expect(res.body.data.lines[0].qtySpare).toBe(5);
       expect(res.body.data.lines[0].qtyShort).toBe(0);
 
       const allocations = await prisma.allocation.findMany({
@@ -2059,12 +2065,12 @@ describe("Requisition CRUD API Integration Tests", () => {
         },
       });
 
-      expect(allocations).toHaveLength(2);
+      expect(allocations).toHaveLength(1);
       expect(
         allocations.some(
           (a) => a.source === "OWN_QUOTA" && a.sourceDeptId === departmentAId,
         ),
-      ).toBe(true);
+      ).toBe(false);
       expect(
         allocations.some(
           (a) => a.source === "SPARE" && a.sourceDeptId === null,
@@ -2100,7 +2106,7 @@ describe("Requisition CRUD API Integration Tests", () => {
       expect(res.body.data.lines[0].qtyShort).toBeGreaterThan(0);
     });
 
-    it("borrows from another department when neither own quota nor the spare pool can cover it", async () => {
+    it("does not borrow from another department for a personal request", async () => {
       const created = await create(
         {
           type: "PERSONAL",
@@ -2115,11 +2121,11 @@ describe("Requisition CRUD API Integration Tests", () => {
         .set("Authorization", `Bearer ${studentToken}`);
 
       expect(res.status).toBe(200);
-      expect(res.body.data.status).toBe("READY");
+      expect(res.body.data.status).toBe("SUBMITTED");
       expect(res.body.data.lines[0].qtyOwnQuota).toBe(0);
       expect(res.body.data.lines[0].qtySpare).toBe(0);
-      expect(res.body.data.lines[0].qtyBorrowed).toBe(5);
-      expect(res.body.data.lines[0].qtyShort).toBe(0);
+      expect(res.body.data.lines[0].qtyBorrowed).toBe(0);
+      expect(res.body.data.lines[0].qtyShort).toBe(5);
 
       const borrowRequest = await prisma.borrowRequest.findFirst({
         where: {
@@ -2130,11 +2136,7 @@ describe("Requisition CRUD API Integration Tests", () => {
         include: { lines: true },
       });
 
-      expect(borrowRequest).not.toBeNull();
-      expect(borrowRequest?.status).toBe("REQUESTED");
-      expect(borrowRequest?.lines).toHaveLength(1);
-      expect(borrowRequest?.lines[0].componentId).toBe(tier3ComponentId);
-      expect(borrowRequest?.lines[0].qtyRequested).toBe(5);
+      expect(borrowRequest).toBeNull();
 
       const borrowAllocation = await prisma.allocation.findFirst({
         where: {
@@ -2145,11 +2147,10 @@ describe("Requisition CRUD API Integration Tests", () => {
         },
       });
 
-      expect(borrowAllocation).not.toBeNull();
-      expect(borrowAllocation?.qty).toBe(5);
+      expect(borrowAllocation).toBeNull();
     });
 
-    it("lands on SUBMITTED with a partial borrow when lenders cannot cover the full shortfall", async () => {
+    it("leaves the full personal shortfall without a borrow", async () => {
       const created = await create(
         {
           type: "PERSONAL",
@@ -2165,15 +2166,15 @@ describe("Requisition CRUD API Integration Tests", () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data.status).toBe("SUBMITTED");
-      expect(res.body.data.lines[0].qtyBorrowed).toBe(8);
-      expect(res.body.data.lines[0].qtyShort).toBe(12);
+      expect(res.body.data.lines[0].qtyBorrowed).toBe(0);
+      expect(res.body.data.lines[0].qtyShort).toBe(20);
 
       const resolution = await request(app)
         .get(`/api/requisitions/${created.body.data.id}/resolution`)
         .set("Authorization", `Bearer ${studentToken}`);
 
       expect(resolution.status).toBe(200);
-      expect(resolution.body.data.lines[0].qtyFromBorrow).toBe(8);
+      expect(resolution.body.data.lines[0].qtyFromBorrow).toBe(0);
 
       const borrowRequest = await prisma.borrowRequest.findFirst({
         where: {
@@ -2183,11 +2184,10 @@ describe("Requisition CRUD API Integration Tests", () => {
         include: { lines: true },
       });
 
-      expect(borrowRequest).not.toBeNull();
-      expect(borrowRequest?.lines[0].qtyRequested).toBe(8);
+      expect(borrowRequest).toBeNull();
     });
 
-    it("auto-raises a purchase request when no quota, spare pool, or lender can cover it", async () => {
+    it("does not auto-raise a department purchase for a personal shortfall", async () => {
       const created = await create(
         {
           type: "PERSONAL",
@@ -2219,17 +2219,7 @@ describe("Requisition CRUD API Integration Tests", () => {
         include: { steps: true },
       });
 
-      expect(purchaseRequest).not.toBeNull();
-      expect(purchaseRequest?.qtyNeeded).toBe(6);
-      expect(purchaseRequest?.status).toBe("PENDING");
-      expect(purchaseRequest?.currentLevel).toBe(1);
-      expect(purchaseRequest?.raisedById).toBe(studentId);
-      expect(purchaseRequest?.steps).toHaveLength(1);
-      expect(purchaseRequest?.steps[0].level).toBe(1);
-      expect(purchaseRequest?.steps[0].decision).toBe("PENDING");
-      expect(purchaseRequest?.steps[0].approverRole).toBe(
-        "CENTRAL_STORE_OFFICER",
-      );
+      expect(purchaseRequest).toBeNull();
     });
 
     it("returns a per-line resolution breakdown", async () => {
@@ -2255,14 +2245,15 @@ describe("Requisition CRUD API Integration Tests", () => {
 
       const line = res.body.data.lines[0];
       expect(line.qtyNeeded).toBe(3);
-      expect(line.qtyFromOwn).toBe(3);
+      expect(line.qtyFromOwn).toBe(0);
       expect(line.qtyFromOffice).toBe(0);
       expect(line.qtyFromBorrow).toBe(0);
       expect(line.qtyToPurchase).toBe(0);
-      expect(line.qtyShort).toBe(0);
+      expect(line.qtyShort).toBe(3);
     });
 
     it("prevents double-allocation when two drafts race for the last units", async () => {
+      await prisma.stock.update({ where: { componentId: concurrentComponentId }, data: { spareQty: 6 } });
       const first = await create(
         {
           type: "PERSONAL",

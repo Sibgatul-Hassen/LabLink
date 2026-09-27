@@ -2,6 +2,7 @@ import { Router, Response } from "express";
 import { ZodError } from "zod";
 
 import { requireAuth } from "../middleware/auth";
+import { requireAcademicScope } from "../middleware/academicScope";
 import { ALL_ROLES, requireRole } from "../middleware/rbac";
 import { importRoutineSlotsSchema } from "../schemas/routine-import.schema";
 import {
@@ -36,6 +37,8 @@ function handleRoutineSlotError(error: unknown, res: Response): void {
     res.status(500).json({ error: "Internal server error" });
     return;
   }
+
+  if (error.message === "Forbidden") { res.status(403).json({ error: "Forbidden" }); return; }
 
   if (error.message === "Routine slot not found") {
     res.status(404).json({ error: "Routine slot not found" });
@@ -78,7 +81,9 @@ function handleRoutineSlotError(error: unknown, res: Response): void {
 router.post(
   "/routine-slots",
   requireAuth,
-  requireRole("SYSTEM_ADMIN"),
+  requireRole("DEPT_STORE_HEAD"),
+  requireAcademicScope("section", "sectionId", "body"),
+  requireAcademicScope("lab", "labId", "body"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const validated = createRoutineSlotSchema.parse(req.body);
@@ -92,11 +97,11 @@ router.post(
 
 router.get(
   "/routine-slots",
-  requireAuth, requireRole(...ALL_ROLES),
+  requireAuth, requireRole("INSTRUCTOR", "LAB_ASSISTANT", "DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER", "OFFICE_ADMIN", "SYSTEM_ADMIN"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const query = listRoutineSlotsQuerySchema.parse(req.query);
-      const result = await RoutineSlotService.listRoutineSlots(query);
+      const result = await RoutineSlotService.listRoutineSlots(query, req.user!);
       res.status(200).json(result);
     } catch (error) {
       handleRoutineSlotError(error, res);
@@ -106,11 +111,12 @@ router.get(
 
 router.get(
   "/routine-slots/:id",
-  requireAuth, requireRole(...ALL_ROLES),
+  requireAuth, requireRole("INSTRUCTOR", "LAB_ASSISTANT", "DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER", "OFFICE_ADMIN", "SYSTEM_ADMIN"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const routineSlot = await RoutineSlotService.getRoutineSlotById(
         req.params.id,
+        req.user!,
       );
       res.status(200).json({ data: routineSlot });
     } catch (error) {
@@ -122,7 +128,10 @@ router.get(
 router.patch(
   "/routine-slots/:id",
   requireAuth,
-  requireRole("SYSTEM_ADMIN"),
+  requireRole("DEPT_STORE_HEAD"),
+  requireAcademicScope("routine", "id"),
+  requireAcademicScope("section", "sectionId", "body", true),
+  requireAcademicScope("lab", "labId", "body", true),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const validated = updateRoutineSlotSchema.parse(req.body);
@@ -140,7 +149,8 @@ router.patch(
 router.delete(
   "/routine-slots/:id",
   requireAuth,
-  requireRole("SYSTEM_ADMIN"),
+  requireRole("DEPT_STORE_HEAD"),
+  requireAcademicScope("routine", "id"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       await RoutineSlotService.deleteRoutineSlot(req.params.id);
@@ -159,11 +169,11 @@ router.delete(
 router.post(
   "/routine-slots/import",
   requireAuth,
-  requireRole("SYSTEM_ADMIN"),
+  requireRole("DEPT_STORE_HEAD"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const { csv } = importRoutineSlotsSchema.parse(req.body);
-      const result = await RoutineImportService.importRoutineSlots(csv);
+      const result = await RoutineImportService.importRoutineSlots(csv, req.user?.departmentId);
       res.status(200).json({ data: result });
     } catch (error) {
       handleRoutineSlotError(error, res);

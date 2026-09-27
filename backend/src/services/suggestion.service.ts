@@ -3,7 +3,7 @@ import { prisma } from "../lib/prisma";
 import { SuggestionGenerators } from "./suggestion-generators.service";
 
 const REVIEW_ROLES: Role[] = [
-  "LAB_ASSISTANT", "DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN",
+  "INSTRUCTOR", "LAB_ASSISTANT", "DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER",
 ];
 
 type SuggestionActor = { id: string; role: Role; departmentId: string | null };
@@ -14,6 +14,16 @@ function departmentFromPayload(value: Prisma.JsonValue): string | null {
 }
 
 export class SuggestionService {
+  private static async teachesExperiment(actorId: string, payload: Prisma.JsonValue): Promise<boolean> {
+    if (typeof payload !== "object" || payload === null || Array.isArray(payload) ||
+        typeof payload.experimentId !== "string") return false;
+    const section = await prisma.section.findFirst({
+      where: { instructorId: actorId, course: { experiments: { some: { id: payload.experimentId } } } },
+      select: { id: true },
+    });
+    return !!section;
+  }
+
   static async generateAllSuggestions(): Promise<Record<string, number>> {
     const shortage = await this.generateShortageSuggestions();
     const rest = await SuggestionGenerators.generateAll();
@@ -65,14 +75,26 @@ export class SuggestionService {
     actor: SuggestionActor, status?: SuggestionStatus,
     type?: SuggestionType, page = 1, limit = 20,
   ) {
-    if (!REVIEW_ROLES.includes(actor.role)) throw new Error("Forbidden");
+    if (!REVIEW_ROLES.includes(actor.role) && actor.role !== "STUDENT") throw new Error("Forbidden");
+    if ((actor.role === "STUDENT" && type && type !== "SLOT") ||
+        (actor.role === "INSTRUCTOR" && type && type !== "ITEM_LIST")) {
+      return { data: [], total: 0, page, limit };
+    }
+    const teachingExperimentIds = actor.role === "INSTRUCTOR"
+      ? (await prisma.experiment.findMany({
+          where: { course: { sections: { some: { instructorId: actor.id } } } },
+          select: { id: true },
+        })).map((experiment) => experiment.id)
+      : [];
     const where: Prisma.SuggestionWhereInput = {
-      ...(actor.role === "SYSTEM_ADMIN" ? {} : { targetRole: actor.role }),
+      ...(actor.role === "STUDENT" ? { type: "SLOT" } : { targetRole: actor.role }),
       ...(["LAB_ASSISTANT", "DEPT_STORE_HEAD"].includes(actor.role)
         ? { payload: { path: ["departmentId"], equals: actor.departmentId ?? "__none__" } }
         : {}),
+      ...(actor.role === "STUDENT" ? { payload: { path: ["studentId"], equals: actor.id } } : {}),
+      ...(actor.role === "INSTRUCTOR" ? { OR: teachingExperimentIds.map((id) => ({ payload: { path: ["experimentId"], equals: id } })) } : {}),
       ...(status ? { status } : {}),
-      ...(type ? { type } : {}),
+      ...(actor.role === "STUDENT" ? { type: "SLOT" } : actor.role === "INSTRUCTOR" ? { type: "ITEM_LIST" } : type ? { type } : {}),
     };
     const [data, total] = await Promise.all([
       prisma.suggestion.findMany({
@@ -88,12 +110,14 @@ export class SuggestionService {
     if (!REVIEW_ROLES.includes(actor.role)) throw new Error("Forbidden");
     await prisma.$transaction(async (tx) => {
       const suggestion = await tx.suggestion.findUnique({ where: { id } });
-      if (!suggestion ||
-        (actor.role !== "SYSTEM_ADMIN" && suggestion.targetRole !== actor.role) ||
+      if (!suggestion) throw new Error("Suggestion not found");
+      if (suggestion.targetRole !== actor.role ||
         (["LAB_ASSISTANT", "DEPT_STORE_HEAD"].includes(actor.role) &&
           departmentFromPayload(suggestion.payload) !== actor.departmentId)) {
-        throw new Error("Suggestion not found");
+        throw new Error("Forbidden");
       }
+      if (actor.role === "INSTRUCTOR" &&
+          !(await this.teachesExperiment(actor.id, suggestion.payload))) throw new Error("Forbidden");
       if (suggestion.status !== "PENDING") throw new Error("Suggestion already reviewed");
       const updated = await tx.suggestion.updateMany({
         where: { id, status: "PENDING" },

@@ -1,6 +1,7 @@
 import { Course, Prisma } from "@prisma/client";
 
 import { prisma } from "../lib/prisma";
+import { AcademicActor, courseReadScope } from "./academic-read-scope";
 import {
   CreateCourseRequest,
   ListCoursesQuery,
@@ -77,6 +78,7 @@ export class CourseService {
 
   static async listCourses(
     query: ListCoursesQuery,
+    actor?: AcademicActor,
   ): Promise<PaginatedCoursesResponse> {
     const { search, departmentId } = query;
     const page = Number(query.page) || 1;
@@ -84,6 +86,7 @@ export class CourseService {
 
     const where: Prisma.CourseWhereInput = {
       isActive: true,
+      ...(actor ? { AND: [courseReadScope(actor)] } : {}),
     };
 
     if (search) {
@@ -138,7 +141,7 @@ export class CourseService {
     };
   }
 
-  static async getCourseById(id: string): Promise<CourseWithDepartment> {
+  static async getCourseById(id: string, actor?: AcademicActor): Promise<CourseWithDepartment> {
     const course = await prisma.course.findUnique({
       where: { id },
       include: {
@@ -156,6 +159,7 @@ export class CourseService {
       throw new Error("Course not found");
     }
 
+    if (actor && !(await prisma.course.count({ where: { id, ...courseReadScope(actor) } }))) throw new Error("Forbidden");
     return course;
   }
 

@@ -1,4 +1,5 @@
 import axios from "axios";
+import { useAppDialog } from "../components/ui/dialog";
 import { type FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -35,6 +36,7 @@ function getErrorMessage(error: unknown): string {
 }
 
 export default function Labs() {
+  const { confirm } = useAppDialog();
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
 
@@ -163,8 +165,8 @@ export default function Labs() {
     saveMutation.mutate(payload);
   }
 
-  function handleDelete(lab: Lab) {
-    const confirmed = window.confirm(
+  async function handleDelete(lab: Lab) {
+    const confirmed = await confirm(
       `Delete lab "${lab.name} (${lab.roomNo})"?`,
     );
     if (!confirmed) return;
