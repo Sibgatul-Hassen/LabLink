@@ -71,16 +71,6 @@ export async function setPenaltyRate(data: {
   return response.data.data;
 }
 
-export async function assessPenalty(data: {
-  requisitionId: string;
-  type: PenaltyType;
-  componentId?: string;
-  qty?: number;
-}): Promise<Penalty> {
-  const response = await apiClient.post<{ data: Penalty }>("/api/penalties/assess", data);
-  return response.data.data;
-}
-
 export async function payPenalty(id: string, receiptRef: string): Promise<Penalty> {
   const response = await apiClient.post<{ data: Penalty }>(`/api/penalties/${id}/pay`, { receiptRef });
   return response.data.data;

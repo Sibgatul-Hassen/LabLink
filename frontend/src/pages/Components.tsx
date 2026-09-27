@@ -1,5 +1,6 @@
 import axios from "axios";
-import { type FormEvent, useState } from "react";
+import { useAppDialog } from "../components/ui/dialog";
+import { Fragment, type FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -25,6 +26,8 @@ interface ComponentFormState {
   description: string;
   isReturnable: boolean;
 }
+
+type SortField = "code" | "name" | "category" | "sizeClass" | "unitCost" | "stock";
 
 const emptyForm: ComponentFormState = {
   code: "",
@@ -58,12 +61,15 @@ function getStockStatus(component: Component): string {
 }
 
 export default function Components() {
+  const { confirm } = useAppDialog();
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
 
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("");
   const [page, setPage] = useState(1);
+  const [sortField, setSortField] = useState<SortField>("code");
+  const [sortDirection, setSortDirection] = useState<"ascending" | "descending">("ascending");
 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingComponent, setEditingComponent] = useState<Component | null>(
@@ -81,8 +87,8 @@ export default function Components() {
 
   const limit = 10;
   const canManage =
-    user?.role === "CENTRAL_STORE_OFFICER" || user?.role === "SYSTEM_ADMIN";
-  const canDelete = user?.role === "SYSTEM_ADMIN";
+    user?.role === "CENTRAL_STORE_OFFICER";
+  const canDelete = user?.role === "CENTRAL_STORE_OFFICER";
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["components", { search, category, page, limit }],
@@ -288,8 +294,8 @@ export default function Components() {
     });
   }
 
-  function handleDelete(component: Component) {
-    const confirmed = window.confirm(
+  async function handleDelete(component: Component) {
+    const confirmed = await confirm(
       `Delete ${component.name} (${component.code})?`,
     );
     if (!confirmed) return;
@@ -300,6 +306,21 @@ export default function Components() {
   if (!user) return null;
 
   const components = data?.data ?? [];
+  const sortedComponents = [...components].sort((left, right) => {
+    const value = (item: Component): string | number => {
+      if (sortField === "stock") return item.stock?.onHand ?? -1;
+      if (sortField === "unitCost") return item.unitCost === null ? -1 : Number(item.unitCost);
+      return item[sortField];
+    };
+    const a = value(left);
+    const b = value(right);
+    const result = typeof a === "number" && typeof b === "number" ? a - b : String(a).localeCompare(String(b));
+    return sortDirection === "ascending" ? result : -result;
+  });
+  function sortBy(field: SortField) {
+    if (field === sortField) setSortDirection((current) => current === "ascending" ? "descending" : "ascending");
+    else { setSortField(field); setSortDirection("ascending"); }
+  }
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / limit));
 
@@ -416,24 +437,13 @@ export default function Components() {
               <thead className="bg-slate-50">
                 <tr>
                   <th className="w-12 px-4 py-3" />
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Code
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Name
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Category
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Size
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Unit Cost
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Stock
-                  </th>
+                  {([ ["code", "Code"], ["name", "Name"], ["category", "Category"], ["sizeClass", "Size"], ["unitCost", "Unit Cost"], ["stock", "Stock"] ] as const).map(([field, label]) => (
+                    <th key={field} aria-sort={sortField === field ? sortDirection : "none"} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      <button type="button" onClick={() => sortBy(field)} className="inline-flex items-center gap-1 hover:text-indigo-700" title={`Sort visible rows by ${label}`}>
+                        {label}<span aria-hidden="true" className="text-[10px]">{sortField === field ? sortDirection === "ascending" ? "↑" : "↓" : "↕"}</span>
+                      </button>
+                    </th>
+                  ))}
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Status
                   </th>
@@ -446,8 +456,8 @@ export default function Components() {
               </thead>
 
               <tbody className="divide-y divide-slate-100">
-                {components.map((component) => (
-                  <>
+                {sortedComponents.map((component) => (
+                  <Fragment key={component.id}>
                     <tr key={component.id} className="hover:bg-slate-50">
                       <td className="px-4 py-4">
                         <button
@@ -666,7 +676,7 @@ export default function Components() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 ))}
 
                 {components.length === 0 && (

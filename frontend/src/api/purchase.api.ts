@@ -45,9 +45,8 @@ export async function getPurchaseRequest(
   return response.data.data;
 }
 
-// GET /api/purchase-requests/queue is gated to CENTRAL_STORE_OFFICER,
-// OFFICE_ADMIN and SYSTEM_ADMIN server-side (see purchase.routes.ts) — call
-// this only for those roles, or it 403s.
+// GET /api/purchase-requests/queue is available to purchase approvers and
+// oversight roles. The API filters approvers to their current rung.
 export async function getPurchaseRequestQueue(): Promise<PurchaseRequest[]> {
   const response = await apiClient.get<PurchaseRequestArrayResponse>(
     "/api/purchase-requests/queue",
@@ -64,6 +63,13 @@ export async function createPurchaseRequest(
     data,
   );
 
+  return response.data.data;
+}
+
+export async function aggregatePurchaseRequests(componentId: string): Promise<PurchaseRequest> {
+  const response = await apiClient.post<PurchaseRequestResponse>(
+    "/api/purchase-requests/aggregate", { componentId },
+  );
   return response.data.data;
 }
 

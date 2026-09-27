@@ -2,7 +2,7 @@ import { Router, Response } from "express";
 import { ZodError } from "zod";
 
 import { requireAuth } from "../middleware/auth";
-import { ALL_ROLES, requireRole } from "../middleware/rbac";
+import { requireRole } from "../middleware/rbac";
 import {
   approveBorrowSchema,
   createBorrowRequestSchema,
@@ -93,9 +93,6 @@ router.post(
   requireAuth,
   requireRole(
     "DEPT_STORE_HEAD",
-    "CENTRAL_STORE_OFFICER",
-    "OFFICE_ADMIN",
-    "SYSTEM_ADMIN",
   ),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
@@ -121,7 +118,7 @@ router.post(
 
 router.get(
   "/borrow-requests",
-  requireAuth, requireRole(...ALL_ROLES),
+  requireAuth, requireRole("DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER", "OFFICE_ADMIN"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);
@@ -151,10 +148,14 @@ router.get(
 router.get(
   "/borrow-requests/lenders",
   requireAuth,
-  requireRole("CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN", "DEPT_STORE_HEAD"),
+  requireRole("CENTRAL_STORE_OFFICER", "DEPT_STORE_HEAD"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const query = findLendersQuerySchema.parse(req.query);
+      if (req.user?.role === "DEPT_STORE_HEAD" && query.excludeDeptId !== req.user.departmentId) {
+        res.status(403).json({ error: "You can only search lenders for your own department" });
+        return;
+      }
 
       const lenders = await BorrowService.findLenders(
         query.componentId,
@@ -176,7 +177,7 @@ router.get(
 router.get(
   "/borrow-requests/incoming",
   requireAuth,
-  requireRole("DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  requireRole("DEPT_STORE_HEAD"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       if (!req.user) {
@@ -198,7 +199,7 @@ router.get(
 router.get(
   "/borrow-requests/outgoing",
   requireAuth,
-  requireRole("DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  requireRole("DEPT_STORE_HEAD"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       if (!req.user) {
@@ -219,7 +220,7 @@ router.get(
 
 router.get(
   "/borrow-requests/:id",
-  requireAuth, requireRole(...ALL_ROLES),
+  requireAuth, requireRole("DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER", "OFFICE_ADMIN"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);
@@ -248,7 +249,7 @@ router.get(
 router.post(
   "/borrow-requests/:id/approve",
   requireAuth,
-  requireRole("DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  requireRole("DEPT_STORE_HEAD"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);
@@ -275,7 +276,7 @@ router.post(
 router.post(
   "/borrow-requests/:id/reject",
   requireAuth,
-  requireRole("DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  requireRole("DEPT_STORE_HEAD"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);
@@ -305,7 +306,7 @@ router.post(
 router.post(
   "/borrow-requests/:id/hand-over",
   requireAuth,
-  requireRole("DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  requireRole("DEPT_STORE_HEAD"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);
@@ -333,7 +334,7 @@ router.post(
 router.post(
   "/borrow-requests/:id/return",
   requireAuth,
-  requireRole("DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  requireRole("DEPT_STORE_HEAD"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);

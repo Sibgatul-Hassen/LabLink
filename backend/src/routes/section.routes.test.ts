@@ -142,8 +142,8 @@ describe("Section CRUD API Integration Tests", () => {
         email: "section-admin@test.com",
         passwordHash: hashedPassword,
         fullName: "Section Test Admin",
-        role: "SYSTEM_ADMIN",
-        departmentId: null,
+        role: "DEPT_STORE_HEAD",
+        departmentId: department.id,
       },
     });
 
@@ -323,7 +323,7 @@ describe("Section CRUD API Integration Tests", () => {
   });
 
   describe("CREATE - POST /api/sections", () => {
-    it("should create a section with SYSTEM_ADMIN role", async () => {
+    it("should create a section with DEPT_STORE_HEAD role", async () => {
       const res = await request(app)
         .post("/api/sections")
         .set("Authorization", `Bearer ${systemAdminToken}`)
@@ -502,7 +502,7 @@ describe("Section CRUD API Integration Tests", () => {
   });
 
   describe("UPDATE - PATCH /api/sections/:id", () => {
-    it("should update a section with SYSTEM_ADMIN role", async () => {
+    it("should update a section with DEPT_STORE_HEAD role", async () => {
       const res = await request(app)
         .patch(`/api/sections/${sectionId}`)
         .set("Authorization", `Bearer ${systemAdminToken}`)
@@ -560,7 +560,7 @@ describe("Section CRUD API Integration Tests", () => {
       );
     });
 
-    it("should hard delete a section with SYSTEM_ADMIN role", async () => {
+    it("should hard delete a section with DEPT_STORE_HEAD role", async () => {
       const res = await request(app)
         .delete(`/api/sections/${sectionId}`)
         .set("Authorization", `Bearer ${systemAdminToken}`);

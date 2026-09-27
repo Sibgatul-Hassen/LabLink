@@ -4,7 +4,7 @@ import { ZodError } from "zod";
 import { requireAuth } from "../middleware/auth";
 import { requireRole } from "../middleware/rbac";
 import {
-  assessPenaltySchema, payPenaltySchema, penaltyQuerySchema,
+  payPenaltySchema, penaltyQuerySchema,
   penaltyRateSchema, waivePenaltySchema,
 } from "../schemas/penalty.schema";
 import { PenaltyService } from "../services/penalty.service";
@@ -15,13 +15,17 @@ const allRoles = [
   "STUDENT", "INSTRUCTOR", "LAB_ASSISTANT", "DEPT_STORE_HEAD",
   "CENTRAL_STORE_OFFICER", "OFFICE_ADMIN", "SYSTEM_ADMIN",
 ] as const;
-const financeRoles = ["OFFICE_ADMIN", "SYSTEM_ADMIN"] as const;
+const penaltyReaders = ["STUDENT", "DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER", "OFFICE_ADMIN", "SYSTEM_ADMIN"] as const;
 
 function handleError(error: unknown, res: Response): void {
   if (error instanceof ZodError) {
     res.status(400).json({ error: error.issues[0]?.message ?? "Invalid request" });
   } else if (error instanceof Error && ["Requisition not found", "Component not found", "Outstanding penalty not found"].includes(error.message)) {
     res.status(404).json({ error: error.message });
+  } else if (error instanceof Error && [
+    "Penalty belongs to another department",
+  ].includes(error.message)) {
+    res.status(403).json({ error: error.message });
   } else if (error instanceof Error && [
     "Only returned personal requisitions can be assessed", "Penalty rate is not configured",
     "Penalty quantity exceeds recorded loss or damage", "Late penalty already assessed",
@@ -41,7 +45,7 @@ function handleError(error: unknown, res: Response): void {
   }
 }
 
-router.get("/penalties", requireAuth, requireRole(...allRoles),
+router.get("/penalties", requireAuth, requireRole(...penaltyReaders),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       if (!req.user) { res.status(401).json({ error: "Not authenticated" }); return; }
@@ -51,7 +55,7 @@ router.get("/penalties", requireAuth, requireRole(...allRoles),
   },
 );
 
-router.get("/penalty-rates", requireAuth, requireRole(...allRoles),
+router.get("/penalty-rates", requireAuth, requireRole(...penaltyReaders),
   async (_req: AuthenticatedRequest, res: Response): Promise<void> => {
     try { res.status(200).json({ data: await PenaltyService.listRates() }); }
     catch (error) { handleError(error, res); }
@@ -67,7 +71,7 @@ router.get("/penalties/block-status", requireAuth, requireRole(...allRoles),
   },
 );
 
-router.put("/penalty-rates", requireAuth, requireRole(...financeRoles),
+router.put("/penalty-rates", requireAuth, requireRole("SYSTEM_ADMIN"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const data = penaltyRateSchema.parse(req.body);
@@ -76,16 +80,7 @@ router.put("/penalty-rates", requireAuth, requireRole(...financeRoles),
   },
 );
 
-router.post("/penalties/assess", requireAuth, requireRole(...financeRoles),
-  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    try {
-      const data = assessPenaltySchema.parse(req.body);
-      res.status(201).json({ data: await PenaltyService.assess(data) });
-    } catch (error) { handleError(error, res); }
-  },
-);
-
-router.post("/penalties/:id/pay", requireAuth, requireRole(...financeRoles),
+router.post("/penalties/:id/pay", requireAuth, requireRole("CENTRAL_STORE_OFFICER"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       if (!req.user) { res.status(401).json({ error: "Not authenticated" }); return; }
@@ -95,12 +90,12 @@ router.post("/penalties/:id/pay", requireAuth, requireRole(...financeRoles),
   },
 );
 
-router.post("/penalties/:id/waive", requireAuth, requireRole(...financeRoles),
+router.post("/penalties/:id/waive", requireAuth, requireRole("DEPT_STORE_HEAD"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       if (!req.user) { res.status(401).json({ error: "Not authenticated" }); return; }
       const data = waivePenaltySchema.parse(req.body);
-      res.status(200).json({ data: await PenaltyService.waive(req.params.id, req.user.id, data.reason) });
+      res.status(200).json({ data: await PenaltyService.waive(req.params.id, req.user, data.reason) });
     } catch (error) { handleError(error, res); }
   },
 );

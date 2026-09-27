@@ -1,4 +1,5 @@
 import axios from "axios";
+import { useAppDialog } from "../components/ui/dialog";
 import { type FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -36,6 +37,7 @@ function getErrorMessage(error: unknown): string {
 }
 
 export default function Departments() {
+  const { confirm } = useAppDialog();
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
 
@@ -155,8 +157,8 @@ export default function Departments() {
     saveMutation.mutate(payload);
   }
 
-  function handleDelete(department: Department) {
-    const confirmed = window.confirm(
+  async function handleDelete(department: Department) {
+    const confirmed = await confirm(
       `Delete department "${department.code} - ${department.name}"?`,
     );
 

@@ -24,12 +24,15 @@ import notificationRouter from "./routes/notification.routes";
 import damageRouter from "./routes/damage.routes";
 import suggestionRouter from "./routes/suggestion.routes";
 import penaltyRouter from "./routes/penalty.routes";
+import auditRouter from "./routes/audit.routes";
+import { auditSuccessfulWrites } from "./middleware/audit";
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 app.use(healthRouter);
+app.use("/api", auditSuccessfulWrites);
 app.use("/api", authRouter);
 app.use("/api", componentRouter);
 app.use("/api", departmentRouter);
@@ -51,6 +54,7 @@ app.use("/api", notificationRouter);
 app.use("/api", damageRouter);
 app.use("/api", suggestionRouter);
 app.use("/api", penaltyRouter);
+app.use("/api", auditRouter);
 
 app.listen(env.PORT, () => {
   console.log(`LabLink API listening on port ${env.PORT}`);

@@ -56,6 +56,19 @@ router.get(
 
       const query = availabilityQuerySchema.parse(req.query);
 
+      if (req.user.role === "STUDENT") {
+        if (query.departmentId) {
+          res.status(403).json({ error: "Department teaching quota is unavailable for personal requests" });
+          return;
+        }
+        const component = await prisma.component.findUnique({ where: { id: query.componentId } });
+        if (!component?.isActive) throw new Error("Component not found");
+        res.status(200).json({ data: await AvailabilityService.personalSpareBreakdown(
+          query.componentId, { from: query.from, to: query.to },
+        ) });
+        return;
+      }
+
       let departmentId: string;
 
       if (UNSCOPED_ROLES.includes(req.user.role)) {

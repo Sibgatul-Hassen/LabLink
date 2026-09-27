@@ -92,6 +92,32 @@ async function sumOverlappingClaims(
 }
 
 export class AvailabilityService {
+  static async personalSpareBreakdown(componentId: string, win: AvailabilityWindow, client: AvailabilityQueryClient = prisma) {
+    const [stock, spareClaims, allClaims] = await Promise.all([
+      client.stock.findUnique({ where: { componentId } }),
+      client.allocation.aggregate({
+        where: {
+          source: "SPARE", status: "HELD", sourceDeptId: null,
+          requisitionLine: { componentId, requisition: { neededFrom: { lt: win.to }, neededTo: { gt: win.from } } },
+        },
+        _sum: { qty: true },
+      }),
+      this.heldForComponent(componentId, win, undefined, client),
+    ]);
+    const spareQty = stock?.spareQty ?? 0;
+    const heldSpare = spareClaims._sum.qty ?? 0;
+    const physicalFree = Math.max(0, (stock?.onHand ?? 0) - allClaims);
+    return {
+      componentId,
+      source: "SPARE" as const,
+      window: { from: win.from.toISOString(), to: win.to.toISOString() },
+      spareQty,
+      heldSpare,
+      physicalFree,
+      available: Math.max(0, Math.min(spareQty - heldSpare, physicalFree)),
+    };
+  }
+
   static async heldForComponent(
     componentId: string,
     win: AvailabilityWindow,

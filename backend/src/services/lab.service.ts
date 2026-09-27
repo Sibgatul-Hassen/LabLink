@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 
 import { prisma } from "../lib/prisma";
+import { AcademicActor, labReadScope } from "./academic-read-scope";
 import {
   CreateLabRequest,
   ListLabsQuery,
@@ -98,12 +99,12 @@ export class LabService {
     });
   }
 
-  static async listLabs(query: ListLabsQuery): Promise<PaginatedLabsResponse> {
+  static async listLabs(query: ListLabsQuery, actor?: AcademicActor): Promise<PaginatedLabsResponse> {
     const { search, departmentId } = query;
     const page = Number(query.page) || 1;
     const limit = Number(query.limit) || 20;
 
-    const where: Prisma.LabWhereInput = { isActive: true };
+    const where: Prisma.LabWhereInput = { isActive: true, ...(actor ? { AND: [labReadScope(actor)] } : {}) };
 
     if (departmentId) {
       where.departmentId = departmentId;
@@ -130,7 +131,7 @@ export class LabService {
     return { data: labs, total, page, limit };
   }
 
-  static async getLabById(id: string): Promise<LabWithRelations> {
+  static async getLabById(id: string, actor?: AcademicActor): Promise<LabWithRelations> {
     const lab = await prisma.lab.findUnique({
       where: { id },
       include: labInclude,
@@ -140,6 +141,7 @@ export class LabService {
       throw new Error("Lab not found");
     }
 
+    if (actor && !(await prisma.lab.count({ where: { id, AND: [labReadScope(actor)] } }))) throw new Error("Forbidden");
     return lab;
   }
 

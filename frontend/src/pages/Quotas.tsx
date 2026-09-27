@@ -10,6 +10,7 @@ import {
   updateQuota,
 } from "../api/quota.api";
 import { useAuthStore } from "../store/authStore";
+import QuotaSuggestionDialog from "../components/QuotaSuggestionDialog";
 import type {
   DepartmentQuota,
   UpdateQuotaRequest,
@@ -49,17 +50,16 @@ export default function Quotas() {
 
   const [historyQuota, setHistoryQuota] =
     useState<DepartmentQuota | null>(null);
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
 
   const limit = 10;
 
   const canManage =
-    user?.role === "CENTRAL_STORE_OFFICER" ||
-    user?.role === "SYSTEM_ADMIN";
+    user?.role === "CENTRAL_STORE_OFFICER";
 
   const canViewAllDepartments =
     user?.role === "CENTRAL_STORE_OFFICER" ||
-    user?.role === "OFFICE_ADMIN" ||
-    user?.role === "SYSTEM_ADMIN";
+    user?.role === "OFFICE_ADMIN";
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: [
@@ -308,15 +308,10 @@ export default function Quotas() {
           </p>
         </div>
 
-        {canManage && (
-          <button
-            type="button"
-            onClick={openCreateForm}
-            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
-          >
-            Set New Quota
-          </button>
-        )}
+        {canManage && <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => setSuggestionsOpen(true)} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Generate Suggestions</button>
+          <button type="button" onClick={openCreateForm} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800">Set New Quota</button>
+        </div>}
       </div>
 
       <div
@@ -780,6 +775,7 @@ export default function Quotas() {
           </div>
         </div>
       )}
+      {canManage && <QuotaSuggestionDialog open={suggestionsOpen} onClose={() => setSuggestionsOpen(false)} departments={departments} components={components} defaultDepartmentId={departmentId} />}
     </section>
   );
 }

@@ -35,6 +35,7 @@ const FORBIDDEN_MESSAGES = [
   "You can only raise requisitions for your own department",
   "You can only change your own requisitions",
   "Outstanding penalties have reached the personal requisition limit",
+  "Requisition is outside your scope",
 ];
 
 const CONFLICT_MESSAGES = [
@@ -133,7 +134,7 @@ function actorFrom(req: AuthenticatedRequest): RequisitionActor | null {
 router.post(
   "/sessions/:id/live-order",
   requireAuth,
-  requireRole("INSTRUCTOR", "SYSTEM_ADMIN"),
+  requireRole("INSTRUCTOR"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);
@@ -157,7 +158,7 @@ router.post(
 router.post(
   "/requisitions",
   requireAuth,
-  requireRole(...ALL_ROLES),
+  requireRole("STUDENT", "LAB_ASSISTANT"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);
@@ -206,7 +207,7 @@ router.get(
 router.get(
   "/requisitions/:id",
   requireAuth,
-  requireRole(...ALL_ROLES),
+  requireRole("STUDENT", "LAB_ASSISTANT", "INSTRUCTOR"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);
@@ -258,10 +259,7 @@ router.patch(
 router.post(
   "/requisitions/:id/cancel",
   requireAuth,
-  requireRole(
-    "STUDENT", "INSTRUCTOR", "LAB_ASSISTANT", "DEPT_STORE_HEAD",
-    "CENTRAL_STORE_OFFICER", "OFFICE_ADMIN", "SYSTEM_ADMIN",
-  ),
+  requireRole("STUDENT", "LAB_ASSISTANT", "INSTRUCTOR"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);
@@ -283,7 +281,7 @@ router.post(
 router.delete(
   "/requisitions/:id",
   requireAuth,
-  requireRole(...ALL_ROLES),
+  requireRole("STUDENT", "LAB_ASSISTANT", "INSTRUCTOR"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);
@@ -310,7 +308,7 @@ router.delete(
 router.post(
   "/requisitions/:id/lines",
   requireAuth,
-  requireRole(...ALL_ROLES),
+  requireRole("STUDENT", "LAB_ASSISTANT", "INSTRUCTOR"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);
@@ -337,7 +335,7 @@ router.post(
 router.patch(
   "/requisitions/:id/lines/:lineId",
   requireAuth,
-  requireRole(...ALL_ROLES),
+  requireRole("STUDENT", "LAB_ASSISTANT", "INSTRUCTOR"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);
@@ -365,7 +363,7 @@ router.patch(
 router.delete(
   "/requisitions/:id/lines/:lineId",
   requireAuth,
-  requireRole(...ALL_ROLES),
+  requireRole("STUDENT", "LAB_ASSISTANT", "INSTRUCTOR"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);
@@ -394,7 +392,7 @@ router.delete(
 router.post(
   "/requisitions/:id/submit",
   requireAuth,
-  requireRole(...ALL_ROLES),
+  requireRole("STUDENT", "LAB_ASSISTANT", "INSTRUCTOR"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);
@@ -446,7 +444,7 @@ router.get(
 router.get(
   "/requisitions/:id/issue-preview",
   requireAuth,
-  requireRole("CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  requireRole("CENTRAL_STORE_OFFICER"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);
@@ -471,7 +469,7 @@ router.get(
 router.post(
   "/requisitions/:id/issue",
   requireAuth,
-  requireRole("CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  requireRole("CENTRAL_STORE_OFFICER"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);
@@ -496,7 +494,7 @@ router.post(
 router.get(
   "/requisitions/:id/return-preview",
   requireAuth,
-  requireRole("CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  requireRole("CENTRAL_STORE_OFFICER", "LAB_ASSISTANT"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);
@@ -521,7 +519,7 @@ router.get(
 router.post(
   "/requisitions/:id/return",
   requireAuth,
-  requireRole("CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  requireRole("CENTRAL_STORE_OFFICER", "LAB_ASSISTANT"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const actor = actorFrom(req);

@@ -1,4 +1,5 @@
 import axios from "axios";
+import { useAppDialog } from "../components/ui/dialog";
 import { Fragment, type FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -52,10 +53,6 @@ const STATUS_STYLES: Record<RequisitionStatus, string> = {
  * authority; this only avoids offering a button that would return 403.
  */
 function raisableTypes(role: Role | undefined): RequisitionType[] {
-  if (role === "SYSTEM_ADMIN") {
-    return ["CLASS", "PERSONAL", "MAINTENANCE"];
-  }
-
   if (role === "STUDENT") {
     return ["PERSONAL"];
   }
@@ -69,7 +66,7 @@ function raisableTypes(role: Role | undefined): RequisitionType[] {
 
 /** Mirrors the requireRole guard on the issue/return endpoints. */
 function canIssueOrReturn(role: Role | undefined): boolean {
-  return role === "CENTRAL_STORE_OFFICER" || role === "SYSTEM_ADMIN";
+  return role === "CENTRAL_STORE_OFFICER";
 }
 
 interface ReturnDraft {
@@ -460,6 +457,7 @@ function ReturnPreviewList({ requisitionId }: { requisitionId: string }) {
 }
 
 export default function Requisitions() {
+  const { confirm } = useAppDialog();
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
 
@@ -479,8 +477,7 @@ export default function Requisitions() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   // The wizard's session path only exists for roles that can raise CLASS
-  // (LAB_ASSISTANT, SYSTEM_ADMIN — mirrors POST /sessions/:id/draft-requisition's
-  // own requireRole guard); everyone else only ever sees the manual form.
+  // (assigned LAB_ASSISTANT); everyone else only sees permitted forms.
   const manualAllowedTypes = allowedTypes.filter((type) => type !== "CLASS");
   const canUseSessionWizard = allowedTypes.includes("CLASS");
 
@@ -806,7 +803,7 @@ export default function Requisitions() {
     }
 
     return (
-      user?.role === "SYSTEM_ADMIN" || requisition.requestedById === user?.id
+      requisition.requestedById === user?.id
     );
   }
 
@@ -928,20 +925,20 @@ export default function Requisitions() {
   function canCancel(requisition: Requisition): boolean {
     return (
       ["SUBMITTED", "READY", "AWAITING_BORROW", "AWAITING_PURCHASE"].includes(requisition.status) &&
-      (user?.role === "SYSTEM_ADMIN" || requisition.requestedById === user?.id)
+      requisition.requestedById === user?.id
     );
   }
 
-  function handleCancel(requisition: Requisition) {
-    if (!window.confirm("Cancel this requisition and release its held components?")) {
+  async function handleCancel(requisition: Requisition) {
+    if (!await confirm("Cancel this requisition and release its held components?")) {
       return;
     }
     setActionError("");
     cancelMutation.mutate(requisition.id);
   }
 
-  function handleDelete(requisition: Requisition) {
-    const confirmed = window.confirm(
+  async function handleDelete(requisition: Requisition) {
+    const confirmed = await confirm(
       `Delete this ${requisition.type.toLowerCase()} draft?`,
     );
 
@@ -975,8 +972,8 @@ export default function Requisitions() {
     });
   }
 
-  function handleSubmitRequisition(requisition: Requisition) {
-    const confirmed = window.confirm(
+  async function handleSubmitRequisition(requisition: Requisition) {
+    const confirmed = await confirm(
       "Submit this requisition? It will be resolved against stock, quota, and borrowing and can no longer be edited.",
     );
 
@@ -1373,7 +1370,7 @@ export default function Requisitions() {
                               </button>
                             )}
 
-                          {canIssueOrReturn(user?.role) &&
+                          {(canIssueOrReturn(user?.role) || (user?.role === "LAB_ASSISTANT" && requisition.type === "CLASS")) &&
                             requisition.status === "ISSUED" && (
                               <button
                                 type="button"

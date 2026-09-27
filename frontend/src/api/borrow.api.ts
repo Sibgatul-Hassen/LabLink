@@ -30,7 +30,7 @@ export async function getBorrowRequests(
 }
 
 // GET /api/borrow-requests/incoming
-// Gated to DEPT_STORE_HEAD, CENTRAL_STORE_OFFICER, SYSTEM_ADMIN server-side.
+// Gated to DEPT_STORE_HEAD server-side.
 export async function getIncomingBorrowRequests(): Promise<BorrowRequest[]> {
   const response = await apiClient.get<BorrowRequestArrayResponse>(
     "/api/borrow-requests/incoming",
@@ -39,7 +39,7 @@ export async function getIncomingBorrowRequests(): Promise<BorrowRequest[]> {
 }
 
 // GET /api/borrow-requests/outgoing
-// Gated to DEPT_STORE_HEAD, CENTRAL_STORE_OFFICER, SYSTEM_ADMIN server-side.
+// Gated to DEPT_STORE_HEAD server-side.
 export async function getOutgoingBorrowRequests(): Promise<BorrowRequest[]> {
   const response = await apiClient.get<BorrowRequestArrayResponse>(
     "/api/borrow-requests/outgoing",

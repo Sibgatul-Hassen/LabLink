@@ -26,6 +26,8 @@ function handleLabError(error: unknown, res: Response): void {
     return;
   }
 
+  if (error.message === "Forbidden") { res.status(403).json({ error: "Forbidden" }); return; }
+
   if (error.message === "Lab not found") {
     res.status(404).json({ error: "Lab not found" });
     return;
@@ -74,11 +76,11 @@ router.post(
 
 router.get(
   "/labs",
-  requireAuth, requireRole(...ALL_ROLES),
+  requireAuth, requireRole("LAB_ASSISTANT", "DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER", "OFFICE_ADMIN", "SYSTEM_ADMIN"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const query = listLabsQuerySchema.parse(req.query);
-      const result = await LabService.listLabs(query);
+      const result = await LabService.listLabs(query, req.user!);
       res.status(200).json(result);
     } catch (error) {
       handleLabError(error, res);
@@ -88,10 +90,10 @@ router.get(
 
 router.get(
   "/labs/:id",
-  requireAuth, requireRole(...ALL_ROLES),
+  requireAuth, requireRole("LAB_ASSISTANT", "DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER", "OFFICE_ADMIN", "SYSTEM_ADMIN"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
-      const lab = await LabService.getLabById(req.params.id);
+      const lab = await LabService.getLabById(req.params.id, req.user!);
       res.status(200).json({ data: lab });
     } catch (error) {
       handleLabError(error, res);

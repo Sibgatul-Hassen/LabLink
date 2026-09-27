@@ -3,6 +3,7 @@ import {
   AllocationSource,
   Prisma,
   RequisitionLine,
+  RequisitionType,
   Role,
 } from "@prisma/client";
 
@@ -48,7 +49,7 @@ export type ResolutionBreakdownLine = {
   }[];
   qtyFromOffice: number;
   qtyFromBorrow: number;
-  // qtyShort is the amount still awaiting purchase after allocation.
+  // qtyShort is the unresolved amount; personal requests do not auto-purchase.
   qtyToPurchase: number;
   qtyShort: number;
 };
@@ -222,19 +223,20 @@ export class RequisitionService {
       return {};
     }
 
-    if (actor.role === "STUDENT") {
-      return { requestedById: actor.id };
-    }
-
-    // A scoped role with no department can see nothing, rather than everything.
+    if (actor.role === "STUDENT") return { requestedById: actor.id, type: "PERSONAL" };
+    if (actor.role === "INSTRUCTOR") return {
+      type: "CLASS", classSession: { routineSlot: { section: { instructorId: actor.id } } },
+    };
+    if (actor.role === "LAB_ASSISTANT") return { OR: [
+      { type: "MAINTENANCE", requestedById: actor.id },
+      { type: "CLASS", classSession: { routineSlot: { OR: [
+        { section: { labAssistantId: actor.id } }, { lab: { labAssistantId: actor.id } },
+      ] } } },
+    ] };
     return { departmentId: actor.departmentId ?? "__none__" };
   }
 
   private static canRaise(type: string, role: Role): boolean {
-    if (role === "SYSTEM_ADMIN") {
-      return true;
-    }
-
     if (type === "PERSONAL") {
       return role === "STUDENT";
     }
@@ -273,7 +275,7 @@ export class RequisitionService {
     data: LiveOrderRequest,
     actor: RequisitionActor,
   ): Promise<RequisitionWithRelations> {
-    if (actor.role !== "INSTRUCTOR" && actor.role !== "SYSTEM_ADMIN") {
+    if (actor.role !== "INSTRUCTOR") {
       throw new Error("Only instructors can place a live class order");
     }
 
@@ -400,8 +402,9 @@ export class RequisitionService {
           routineSlot: {
             select: {
               section: {
-                select: { course: { select: { departmentId: true } } },
+                select: { labAssistantId: true, course: { select: { departmentId: true } } },
               },
+              lab: { select: { labAssistantId: true } },
             },
           },
         },
@@ -418,10 +421,9 @@ export class RequisitionService {
       departmentId = session.routineSlot.section.course.departmentId;
 
       // A lab assistant may only requisition for their own department.
-      if (
-        actor.role !== "SYSTEM_ADMIN" &&
-        actor.departmentId !== departmentId
-      ) {
+      if (actor.departmentId !== departmentId ||
+          (session.routineSlot.section.labAssistantId !== actor.id &&
+           session.routineSlot.lab.labAssistantId !== actor.id)) {
         throw new Error(
           "You can only raise requisitions for your own department",
         );
@@ -523,6 +525,9 @@ export class RequisitionService {
     });
 
     if (!requisition) {
+      if (await prisma.requisition.count({ where: { id } })) {
+        throw new Error("Requisition is outside your scope");
+      }
       throw new Error("Requisition not found");
     }
 
@@ -536,10 +541,7 @@ export class RequisitionService {
   ): Promise<RequisitionWithRelations> {
     const requisition = await this.getRequisitionById(id, actor);
 
-    if (
-      actor.role !== "SYSTEM_ADMIN" &&
-      requisition.requestedById !== actor.id
-    ) {
+    if (requisition.requestedById !== actor.id) {
       throw new Error("You can only change your own requisitions");
     }
 
@@ -597,10 +599,7 @@ export class RequisitionService {
     actor: RequisitionActor,
   ): Promise<RequisitionWithRelations> {
     const requisition = await this.getRequisitionById(id, actor);
-    if (
-      actor.role !== "SYSTEM_ADMIN" &&
-      requisition.requestedById !== actor.id
-    ) {
+    if (requisition.requestedById !== actor.id) {
       throw new Error("You can only change your own requisitions");
     }
 
@@ -1021,11 +1020,12 @@ export class RequisitionService {
     }
 
     await prisma.$transaction(async (tx) => {
+      const returnedAt = new Date();
       const claimed = await tx.requisition.updateMany({
         where: { id, status: "ISSUED" },
         data: {
           status: "RETURNED",
-          returnedAt: new Date(),
+          returnedAt,
           returnedById: actor.id,
         },
       });
@@ -1171,7 +1171,9 @@ export class RequisitionService {
           );
         }
       }
-
+      if (requisition.type === "PERSONAL") {
+        await PenaltyService.assessReturnedPersonal(tx, requisition, returnedAt, data.items);
+      }
     });
 
     return this.getRequisitionById(id, actor);
@@ -1197,10 +1199,11 @@ export class RequisitionService {
         experiment: { include: { items: true } },
         routineSlot: {
           include: {
-            lab: { select: { groupSize: true } },
+            lab: { select: { groupSize: true, labAssistantId: true } },
             section: {
               select: {
                 studentCount: true,
+                labAssistantId: true,
                 course: { select: { departmentId: true } },
               },
             },
@@ -1223,7 +1226,9 @@ export class RequisitionService {
 
     const departmentId = session.routineSlot.section.course.departmentId;
 
-    if (actor.role !== "SYSTEM_ADMIN" && actor.departmentId !== departmentId) {
+    if (actor.role !== "LAB_ASSISTANT" || actor.departmentId !== departmentId ||
+        (session.routineSlot.section.labAssistantId !== actor.id &&
+         session.routineSlot.lab.labAssistantId !== actor.id)) {
       throw new Error(
         "You can only raise requisitions for your own department",
       );
@@ -1307,6 +1312,7 @@ export class RequisitionService {
   private static async resolveLine(
     tx: Prisma.TransactionClient,
     requisitionId: string,
+    requisitionType: RequisitionType,
     departmentId: string,
     window: AvailabilityWindow,
     line: RequisitionLine,
@@ -1318,74 +1324,79 @@ export class RequisitionService {
     let qtySpare = 0;
     let qtyBorrowed = 0;
 
-    const ownAvailable = await AvailabilityService.availableToDept(
-      departmentId,
-      line.componentId,
-      window,
-      undefined,
-      tx,
-    );
-
-    const fromOwn = Math.min(remaining, ownAvailable);
-
-    if (fromOwn > 0) {
-      await this.createAllocation(
-        line.id,
-        fromOwn,
-        "OWN_QUOTA",
+    if (requisitionType !== "PERSONAL") {
+      const ownAvailable = await AvailabilityService.availableToDept(
         departmentId,
+        line.componentId,
+        window,
+        undefined,
         tx,
       );
-      qtyOwnQuota = fromOwn;
-      remaining -= fromOwn;
-    }
 
-    // Tier 2: use approved replacements from this department's available quota.
-    if (remaining > 0) {
-      const requestedComponents = await tx.requisitionLine.findMany({
-        where: { requisitionId },
-        select: { componentId: true },
-      });
-      const requestedIds = new Set(requestedComponents.map((item) => item.componentId));
-      const substitutes = await tx.componentSubstitute.findMany({
-        where: {
-          originalId: line.componentId,
-          substitute: { isActive: true },
-        },
-        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-      });
+      const fromOwn = Math.min(remaining, ownAvailable);
 
-      for (const substitute of substitutes) {
-        if (remaining <= 0) break;
-        // The same component cannot be both a requested line and its replacement.
-        if (requestedIds.has(substitute.substituteId)) continue;
-
-        const availablePhysical = await AvailabilityService.availableToDept(
-          departmentId,
-          substitute.substituteId,
-          window,
-          undefined,
-          tx,
-        );
-        const equivalent = Math.min(
-          remaining,
-          Math.floor(availablePhysical / substitute.ratio),
-        );
-        if (equivalent <= 0) continue;
-
+      if (fromOwn > 0) {
         await this.createAllocation(
           line.id,
-          equivalent * substitute.ratio,
-          "SUBSTITUTE",
+          fromOwn,
+          "OWN_QUOTA",
           departmentId,
           tx,
-          { componentId: substitute.substituteId, ratio: substitute.ratio },
         );
-        qtySubstitute += equivalent;
-        remaining -= equivalent;
+        qtyOwnQuota = fromOwn;
+        remaining -= fromOwn;
       }
+
+      // Tier 2: use approved replacements from this department's available quota.
+      if (remaining > 0) {
+        const requestedComponents = await tx.requisitionLine.findMany({
+          where: { requisitionId },
+          select: { componentId: true },
+        });
+        const requestedIds = new Set(requestedComponents.map((item) => item.componentId));
+        const substitutes = await tx.componentSubstitute.findMany({
+          where: {
+            originalId: line.componentId,
+            substitute: { isActive: true },
+          },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        });
+
+        for (const substitute of substitutes) {
+          if (remaining <= 0) break;
+          // The same component cannot be both a requested line and its replacement.
+          if (requestedIds.has(substitute.substituteId)) continue;
+
+          const availablePhysical = await AvailabilityService.availableToDept(
+            departmentId,
+            substitute.substituteId,
+            window,
+            undefined,
+            tx,
+          );
+          const equivalent = Math.min(
+            remaining,
+            Math.floor(availablePhysical / substitute.ratio),
+          );
+          if (equivalent <= 0) continue;
+
+          await this.createAllocation(
+            line.id,
+            equivalent * substitute.ratio,
+            "SUBSTITUTE",
+            departmentId,
+            tx,
+            { componentId: substitute.substituteId, ratio: substitute.ratio },
+          );
+          qtySubstitute += equivalent;
+          remaining -= equivalent;
+        }
+      }
+
     }
 
+    // Personal requests draw only from the central spare pool; teaching quotas
+    // and interdepartment borrowing are reserved for class/maintenance work.
     // Tier 3: use the central spare pool of the requested component.
     if (remaining > 0) {
       const [stock, heldSpareResult, heldAll] = await Promise.all([
@@ -1438,7 +1449,7 @@ export class RequisitionService {
     // lenders run out. findLenders() already excludes the requesting
     // department and every office department (isOffice: false), so there is
     // no risk of "borrowing" from tier 1 or tier 2's own source.
-    if (remaining > 0) {
+    if (remaining > 0 && requisitionType !== "PERSONAL") {
       const lenders = await BorrowService.findLenders(
         line.componentId,
         remaining,
@@ -1505,7 +1516,7 @@ export class RequisitionService {
     // (qtyShort) must stay accurate, and the requisition must stay
     // SUBMITTED rather than READY until that purchase is actually fulfilled
     // — a later stage's concern, not this resolver's.
-    if (remaining > 0) {
+    if (remaining > 0 && requisitionType !== "PERSONAL") {
       await PurchaseService.createPurchaseRequest(
         {
           componentId: line.componentId,
@@ -1580,6 +1591,7 @@ export class RequisitionService {
             const remaining = await this.resolveLine(
               tx,
               id,
+              requisition.type,
               requisition.departmentId,
               window,
               line,
@@ -1648,7 +1660,7 @@ export class RequisitionService {
           })),
         qtyFromOffice: line.qtySpare,
         qtyFromBorrow: line.qtyBorrowed,
-        qtyToPurchase: line.qtyShort,
+        qtyToPurchase: requisition.type === "PERSONAL" ? 0 : line.qtyShort,
         qtyShort: line.qtyShort,
       })),
     };

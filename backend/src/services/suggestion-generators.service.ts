@@ -157,7 +157,7 @@ export class SuggestionGenerators {
     return quotas.flatMap((quota) => quota.suggestedQty > quota.qty ? [{
       type: "QUOTA" as const,
       key: `${quota.departmentId}:${quota.componentId}`,
-      targetRole: "DEPT_STORE_HEAD" as const,
+      targetRole: "CENTRAL_STORE_OFFICER" as const,
       payload: {
         departmentId: quota.departmentId, departmentCode: quota.department.code,
         componentId: quota.componentId, componentCode: quota.component.code,
@@ -217,7 +217,7 @@ export class SuggestionGenerators {
     return [...grouped.entries()].flatMap(([key, item]) => item.samples >= 2 ? [{
       type: "ITEM_LIST" as const,
       key,
-      targetRole: "LAB_ASSISTANT" as const,
+      targetRole: "INSTRUCTOR" as const,
       payload: {
         departmentId: item.departmentId, experimentId: item.experimentId,
         componentId: item.componentId, componentCode: item.componentCode,

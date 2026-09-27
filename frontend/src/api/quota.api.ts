@@ -24,6 +24,25 @@ interface GetQuotaHistoryParams {
   limit?: number;
 }
 
+export interface GenerateQuotaSuggestionsRequest {
+  departmentId: string;
+  from?: string;
+  to?: string;
+}
+
+export interface QuotaSuggestionResult {
+  department: { id: string; code: string; name: string };
+  peakGroups: number;
+  from: string;
+  to: string;
+  suggestions: { componentId: string; maxQtyPerGroup: number; suggestedQty: number }[];
+}
+
+export async function generateQuotaSuggestions(data: GenerateQuotaSuggestionsRequest): Promise<QuotaSuggestionResult> {
+  const response = await apiClient.post<QuotaSuggestionResult>("/api/quotas/suggestions", data);
+  return response.data;
+}
+
 export async function getQuotas(
   params?: GetQuotasParams,
 ): Promise<DepartmentQuotaListResponse> {

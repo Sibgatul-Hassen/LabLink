@@ -59,8 +59,15 @@ export default function NotificationBell() {
         setOpen(false);
       }
     }
+    function handleEscape(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
     if (open) document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    if (open) document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
   }, [open]);
 
   return (
@@ -69,6 +76,8 @@ export default function NotificationBell() {
       <button
         id="notification-bell"
         type="button"
+        aria-expanded={open}
+        aria-controls="notification-panel"
         aria-label={`Notifications — ${unreadCount} unread`}
         onClick={() => setOpen((v) => !v)}
         className="relative rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -93,7 +102,7 @@ export default function NotificationBell() {
 
       {/* Dropdown panel */}
       {open && (
-        <div className="absolute right-0 top-11 z-50 w-80 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+        <div id="notification-panel" className="absolute right-0 top-11 z-50 w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
           {/* Header */}
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
             <h2 className="text-sm font-semibold text-slate-900">
@@ -126,18 +135,13 @@ export default function NotificationBell() {
             )}
 
             {notifications.map((n) => (
-              <li
-                key={n.id}
-                className={`cursor-pointer px-4 py-3 transition hover:bg-slate-50 ${
-                  n.isRead ? "opacity-60" : ""
-                }`}
-                onClick={() => {
+              <li key={n.id} className={n.isRead ? "opacity-60" : ""}>
+                <button type="button" className="w-full px-4 py-3 text-left transition hover:bg-slate-50" onClick={() => {
                   if (!n.isRead) markReadMut.mutate(n.id);
                   if (n.refType === "AUTO_DRAFT") navigate("/requisitions");
                   if (n.refType === "LOW_STOCK") navigate("/stocks");
                   setOpen(false);
-                }}
-              >
+                }}>
                 <div className="flex items-start gap-2">
                   {/* Unread dot */}
                   <span
@@ -157,6 +161,7 @@ export default function NotificationBell() {
                     </p>
                   </div>
                 </div>
+                </button>
               </li>
             ))}
           </ul>

@@ -2,6 +2,7 @@ import { Router, Response } from "express";
 import { ZodError } from "zod";
 
 import { requireAuth } from "../middleware/auth";
+import { requireAcademicScope } from "../middleware/academicScope";
 import { ALL_ROLES, requireRole } from "../middleware/rbac";
 import {
   createExperimentItemSchema,
@@ -27,6 +28,8 @@ function handleExperimentError(error: unknown, res: Response): void {
     res.status(500).json({ error: "Internal server error" });
     return;
   }
+
+  if (error.message === "Forbidden") { res.status(403).json({ error: "Forbidden" }); return; }
 
   if (
     error.message === "Experiment not found" ||
@@ -55,7 +58,8 @@ function handleExperimentError(error: unknown, res: Response): void {
 router.post(
   "/experiments",
   requireAuth,
-  requireRole("SYSTEM_ADMIN"),
+  requireRole("DEPT_STORE_HEAD"),
+  requireAcademicScope("course", "courseId", "body"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const validated = createExperimentSchema.parse(req.body);
@@ -69,11 +73,11 @@ router.post(
 
 router.get(
   "/experiments",
-  requireAuth, requireRole(...ALL_ROLES),
+  requireAuth, requireRole("INSTRUCTOR", "LAB_ASSISTANT", "DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER", "OFFICE_ADMIN", "SYSTEM_ADMIN"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const query = listExperimentsQuerySchema.parse(req.query);
-      const result = await ExperimentService.listExperiments(query);
+      const result = await ExperimentService.listExperiments(query, req.user!);
       res.status(200).json(result);
     } catch (error) {
       handleExperimentError(error, res);
@@ -83,11 +87,12 @@ router.get(
 
 router.get(
   "/experiments/:id",
-  requireAuth, requireRole(...ALL_ROLES),
+  requireAuth, requireRole("INSTRUCTOR", "LAB_ASSISTANT", "DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER", "OFFICE_ADMIN", "SYSTEM_ADMIN"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const experiment = await ExperimentService.getExperimentById(
         req.params.id,
+        req.user!,
       );
       res.status(200).json({ data: experiment });
     } catch (error) {
@@ -99,7 +104,9 @@ router.get(
 router.patch(
   "/experiments/:id",
   requireAuth,
-  requireRole("SYSTEM_ADMIN"),
+  requireRole("DEPT_STORE_HEAD"),
+  requireAcademicScope("experiment", "id"),
+  requireAcademicScope("course", "courseId", "body", true),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const validated = updateExperimentSchema.parse(req.body);
@@ -117,7 +124,8 @@ router.patch(
 router.delete(
   "/experiments/:id",
   requireAuth,
-  requireRole("SYSTEM_ADMIN"),
+  requireRole("DEPT_STORE_HEAD"),
+  requireAcademicScope("experiment", "id"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       await ExperimentService.deleteExperiment(req.params.id);
@@ -133,7 +141,8 @@ router.delete(
 router.post(
   "/experiments/:id/items",
   requireAuth,
-  requireRole("SYSTEM_ADMIN"),
+  requireRole("DEPT_STORE_HEAD"),
+  requireAcademicScope("experiment", "id"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const validated = createExperimentItemSchema.parse(req.body);
@@ -151,7 +160,8 @@ router.post(
 router.patch(
   "/experiments/:id/items/:itemId",
   requireAuth,
-  requireRole("SYSTEM_ADMIN"),
+  requireRole("DEPT_STORE_HEAD"),
+  requireAcademicScope("experiment", "id"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const validated = updateExperimentItemSchema.parse(req.body);
@@ -170,7 +180,8 @@ router.patch(
 router.delete(
   "/experiments/:id/items/:itemId",
   requireAuth,
-  requireRole("SYSTEM_ADMIN"),
+  requireRole("DEPT_STORE_HEAD"),
+  requireAcademicScope("experiment", "id"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       await ExperimentService.deleteItem(req.params.id, req.params.itemId);

@@ -70,8 +70,8 @@ describe("Course CRUD API Integration Tests", () => {
         email: "course-admin@test.com",
         passwordHash: hashedPassword,
         fullName: "Course Test Admin",
-        role: "SYSTEM_ADMIN",
-        departmentId: null,
+        role: "DEPT_STORE_HEAD",
+        departmentId: department.id,
       },
     });
 
@@ -116,7 +116,7 @@ describe("Course CRUD API Integration Tests", () => {
   });
 
   describe("CREATE - POST /api/courses", () => {
-    it("should create a course with SYSTEM_ADMIN role", async () => {
+    it("should create a course with DEPT_STORE_HEAD role", async () => {
       const res = await request(app)
         .post("/api/courses")
         .set("Authorization", `Bearer ${systemAdminToken}`)
@@ -240,7 +240,7 @@ describe("Course CRUD API Integration Tests", () => {
   });
 
   describe("UPDATE - PATCH /api/courses/:id", () => {
-    it("should update a course with SYSTEM_ADMIN role", async () => {
+    it("should update a course with DEPT_STORE_HEAD role", async () => {
       const res = await request(app)
         .patch(`/api/courses/${courseId}`)
         .set("Authorization", `Bearer ${systemAdminToken}`)
@@ -275,6 +275,27 @@ describe("Course CRUD API Integration Tests", () => {
 
       expect(res.status).toBe(403);
     });
+
+    it("forbids a department head from reading or editing another department's course", async () => {
+      const otherDepartment = await prisma.department.create({
+        data: { code: "TEST-COURSE-FOREIGN", name: "Foreign Course Department" },
+      });
+      const otherCourse = await prisma.course.create({
+        data: { code: "TEST-COURSE-FOREIGN", title: "Foreign Course", departmentId: otherDepartment.id },
+      });
+      try {
+        const read = await request(app).get(`/api/courses/${otherCourse.id}`)
+          .set("Authorization", `Bearer ${systemAdminToken}`);
+        const edit = await request(app).patch(`/api/courses/${otherCourse.id}`)
+          .set("Authorization", `Bearer ${systemAdminToken}`)
+          .send({ title: "Cross department change" });
+        expect(read.status).toBe(403);
+        expect(edit.status).toBe(403);
+      } finally {
+        await prisma.course.delete({ where: { id: otherCourse.id } });
+        await prisma.department.delete({ where: { id: otherDepartment.id } });
+      }
+    });
   });
 
   describe("DELETE - DELETE /api/courses/:id", () => {
@@ -286,7 +307,7 @@ describe("Course CRUD API Integration Tests", () => {
       expect(res.status).toBe(403);
     });
 
-    it("should soft delete a course with SYSTEM_ADMIN role", async () => {
+    it("should soft delete a course with DEPT_STORE_HEAD role", async () => {
       const res = await request(app)
         .delete(`/api/courses/${courseId}`)
         .set("Authorization", `Bearer ${systemAdminToken}`);
