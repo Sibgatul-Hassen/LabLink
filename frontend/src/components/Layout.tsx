@@ -6,7 +6,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   Activity, Boxes, CalendarDays, ChartNoAxesCombined, ChevronLeft, ChevronRight,
   ClipboardList, Command, FlaskConical, GraduationCap, Layers3, LayoutDashboard,
-  LogOut, Menu, Moon, Package, Search, Settings2, ShieldCheck, Sun, Users,
+  LogOut, Moon, Package, Search, Settings2, ShieldCheck, Sun, Users,
   Warehouse, Wrench, X, type LucideIcon,
 } from "lucide-react";
 import NotificationBell from "./NotificationBell";
@@ -69,6 +69,7 @@ export default function Layout() {
   const reduceMotion = useReducedMotion();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
   const [searchOpen, setSearchOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [theme, setTheme] = useState<"light" | "dark">(getTheme);
@@ -104,6 +105,12 @@ export default function Layout() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
   useEffect(() => { setMobileOpen(false); }, [location.pathname]);
+  useEffect(() => {
+    const query = window.matchMedia("(min-width: 1024px)");
+    const onChange = () => setIsDesktop(query.matches);
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
   if (!user) return null;
 
   function signOut() { logout(); navigate("/login", { replace: true }); }
@@ -113,12 +120,11 @@ export default function Layout() {
     {mobileOpen && <button type="button" className="fixed inset-0 z-40 bg-slate-950/55 backdrop-blur-sm lg:hidden" onClick={() => setMobileOpen(false)} aria-label="Close navigation overlay" />}
     <aside id="app-navigation" className={`app-sidebar fixed inset-y-0 left-0 z-50 transition-all duration-300 lg:sticky lg:top-0 lg:h-screen lg:translate-x-0 ${collapsed ? "w-[264px] lg:w-[76px]" : "w-[264px]"} ${mobileOpen ? "translate-x-0" : "-translate-x-full"}`}>
       <div className="flex h-full flex-col">
-        <div className="flex h-[76px] items-center justify-between gap-2 border-b border-slate-700/60 px-4">
+        <div className={`flex h-[76px] items-center justify-between gap-2 border-b border-slate-700/60 px-4 ${collapsed ? "lg:justify-center lg:px-2" : ""}`}>
           <NavLink to="/dashboard" className="flex min-w-0 items-center gap-3" aria-label="LabLink dashboard">
             <img src={logoMark} alt="" className="w-11 shrink-0 object-contain" />
             <span className={collapsed ? "lg:hidden" : ""}><strong className="font-display block text-[17px] font-bold tracking-tight"><span className="text-brand-500">Lab</span><span className="text-slate-50">Link</span></strong><small className="block text-[10px] font-semibold uppercase tracking-[.17em] text-slate-400">Lab operations</small></span>
           </NavLink>
-          <button type="button" className="hidden rounded-lg p-1.5 text-slate-300 hover:bg-slate-700 lg:block" onClick={() => setCollapsed((value) => !value)} aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}>{collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}</button>
           <button type="button" className="rounded-lg p-1.5 text-slate-300 lg:hidden" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X size={20} /></button>
         </div>
         <nav aria-label="Main navigation" className="min-h-0 flex-1 space-y-5 overflow-y-auto px-3 py-5">
@@ -140,7 +146,7 @@ export default function Layout() {
     <div className="flex min-h-screen min-w-0 flex-1 flex-col">
       <header className="app-topbar sticky top-0 z-30 flex h-[76px] items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
         <div className="flex min-w-0 items-center gap-3">
-          <button type="button" className="app-icon-button lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Open navigation" aria-controls="app-navigation" aria-expanded={mobileOpen}><Menu size={20} /></button>
+          <button type="button" className="app-icon-button" onClick={() => (isDesktop ? setCollapsed((value) => !value) : setMobileOpen(true))} aria-label={isDesktop ? (collapsed ? "Expand sidebar" : "Collapse sidebar") : "Open navigation"} aria-controls="app-navigation" aria-expanded={isDesktop ? !collapsed : mobileOpen}>{isDesktop && !collapsed ? <ChevronLeft size={20} /> : <ChevronRight size={20} />}</button>
           <div className="min-w-0"><p className="text-[11px] font-semibold uppercase tracking-[.13em] text-[var(--app-muted)]">Workspace / {current?.label ?? "LabLink"}</p><h1 className="truncate text-base font-bold text-[var(--app-ink)] sm:text-lg">{current?.label ?? "Workspace"}</h1></div>
         </div>
         <div className="flex items-center gap-2 sm:gap-3">
