@@ -16,6 +16,10 @@ body {
   background: #f8fafc;
 }
 
+/* theme-aware logo: the small "l" is white in light theme, black in dark theme */
+:root:not([data-theme="dark"]) .theme-logo-dark,
+:root[data-theme="dark"] .theme-logo-light { display: none; }
+
 /* ─────────────── landing page ─────────────── */
 
 .landing {

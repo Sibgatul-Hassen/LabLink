@@ -10,7 +10,7 @@ import {
   Warehouse, Wrench, X, type LucideIcon,
 } from "lucide-react";
 import NotificationBell from "./NotificationBell";
-import logoMark from "../assets/brand/logo-mark.webp";
+import ThemeLogo from "./ThemeLogo";
 import { useAuthStore } from "../store/authStore";
 import type { Role } from "../types";
 import { canShowInNavigation } from "../auth/permissions";
@@ -122,7 +122,7 @@ export default function Layout() {
       <div className="flex h-full flex-col">
         <div className={`flex h-[76px] items-center justify-between gap-2 border-b border-slate-700/60 px-4 ${collapsed ? "lg:justify-center lg:px-2" : ""}`}>
           <NavLink to="/dashboard" className="flex min-w-0 items-center gap-3" aria-label="LabLink dashboard">
-            <img src={logoMark} alt="" className="w-11 shrink-0 object-contain" />
+            <ThemeLogo className="w-11 shrink-0 object-contain" />
             <span className={collapsed ? "lg:hidden" : ""}><strong className="font-display block text-[17px] font-bold tracking-tight"><span className="text-brand-500">Lab</span><span className="text-slate-50">Link</span></strong><small className="block text-[10px] font-semibold uppercase tracking-[.17em] text-slate-400">Lab operations</small></span>
           </NavLink>
           <button type="button" className="rounded-lg p-1.5 text-slate-300 lg:hidden" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X size={20} /></button>

@@ -5,7 +5,7 @@ import { ArrowLeft, ArrowRight, Boxes, Eye, EyeOff, LoaderCircle, LockKeyhole, S
 import { Link, useNavigate } from "react-router-dom";
 import { login as loginRequest } from "../api/auth.api";
 import { useAuthStore } from "../store/authStore";
-import logoMark from "../assets/brand/logo-mark.webp";
+import ThemeLogo from "../components/ThemeLogo";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -44,7 +44,7 @@ export default function Login() {
     <div className="relative hidden min-h-screen flex-col justify-between overflow-hidden bg-[#0b1120] p-12 text-[#f2f5fb] lg:flex xl:p-16">
       <div aria-hidden="true" className="pointer-events-none absolute -right-32 -top-36 h-[520px] w-[520px] rounded-full border border-brand-300/10 bg-brand-600/20 blur-3xl" />
       <div aria-hidden="true" className="pointer-events-none absolute -bottom-48 -left-36 h-[560px] w-[560px] rounded-full bg-blue-900/30 blur-3xl" />
-      <div className="relative flex items-center gap-3"><img src={logoMark} alt="" className="h-11 w-auto" /><span><strong className="font-display block text-2xl font-bold tracking-tight"><span className="text-brand-500">Lab</span>Link</strong><small className="text-xs font-semibold uppercase tracking-[.2em] text-slate-300">Laboratory operations</small></span></div>
+      <div className="relative flex items-center gap-3"><ThemeLogo className="h-11 w-auto" /><span><strong className="font-display block text-2xl font-bold tracking-tight"><span className="text-brand-500">Lab</span>Link</strong><small className="text-xs font-semibold uppercase tracking-[.2em] text-slate-300">Laboratory operations</small></span></div>
       <motion.div initial={reduceMotion ? false : { opacity: 0, y: 22 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .55 }} className="relative max-w-xl">
         <div className="mb-8 inline-flex items-center gap-2 rounded-full border border-brand-300/20 bg-brand-400/10 px-4 py-2 text-xs font-semibold tracking-wide text-brand-200"><span className="h-2 w-2 animate-pulse rounded-full bg-brand-300" /> A clearer view of every lab resource</div>
         <h1 className="font-display text-5xl font-semibold leading-[1.08] tracking-[-.045em] xl:text-6xl">Everything your lab needs, in one place.</h1>
@@ -59,7 +59,7 @@ export default function Login() {
     <div className="flex min-h-screen items-center justify-center px-5 py-12 sm:px-10 lg:px-12">
       <motion.div initial={reduceMotion ? false : { opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .45, delay: .05 }} className="w-full max-w-md">
         <Link to="/" className="mb-8 inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 transition hover:text-[#c85200]"><ArrowLeft size={16} /> Back to home</Link>
-        <div className="mb-9 flex items-center gap-3 lg:hidden"><img src={logoMark} alt="" className="h-10 w-auto" /><strong className="font-display text-2xl tracking-tight"><span className="text-brand-600">Lab</span>Link</strong></div>
+        <div className="mb-9 flex items-center gap-3 lg:hidden"><ThemeLogo className="h-10 w-auto" /><strong className="font-display text-2xl tracking-tight"><span className="text-brand-600">Lab</span>Link</strong></div>
         <div className="mb-8"><p className="mb-2 text-xs font-bold uppercase tracking-[.15em] text-[#c85200]">Welcome back</p><h2 className="font-display text-[2.2rem] font-bold tracking-tight text-[#0f172a]">Sign in to LabLink</h2><p className="mt-2 text-sm text-slate-600">Enter your credentials to continue to your workspace.</p></div>
         <form onSubmit={handleSubmit} className="space-y-5">
           <div><label htmlFor="email" className="mb-2 block text-sm font-semibold text-slate-700">Email address</label><input id="email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} disabled={isLoading} placeholder="name@uiu.ac.bd" className="h-12 w-full rounded-xl border border-slate-300 bg-[#fbfcff] px-4 text-sm text-slate-900 outline-none transition focus:border-brand-500 focus:ring-4 focus:ring-brand-100 disabled:opacity-60" /></div>
