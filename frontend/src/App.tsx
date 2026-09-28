@@ -2,6 +2,7 @@ import { lazy, Suspense, type ComponentType, type LazyExoticComponent } from "re
 import { Navigate, Route, Routes } from "react-router-dom";
 import Layout from "./components/Layout";
 import ProtectedRoute from "./components/ProtectedRoute";
+import Landing from "./pages/Landing";
 import Login from "./pages/Login";
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Components = lazy(() => import("./pages/Components"));
@@ -31,6 +32,7 @@ function page(Page: LazyExoticComponent<ComponentType>) {
 
 export default function App() {
   return <Routes>
+    <Route path="/" element={<Landing />} />
     <Route path="/login" element={<Login />} />
     <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
       <Route path="/dashboard" element={page(Dashboard)} />

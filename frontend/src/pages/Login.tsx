@@ -1,8 +1,8 @@
 import { FormEvent, useState } from "react";
 import axios from "axios";
 import { motion, useReducedMotion } from "framer-motion";
-import { ArrowRight, Boxes, Eye, EyeOff, FlaskConical, LoaderCircle, LockKeyhole, ShieldCheck } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { ArrowLeft, ArrowRight, Boxes, Eye, EyeOff, FlaskConical, LoaderCircle, LockKeyhole, ShieldCheck } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
 import { login as loginRequest } from "../api/auth.api";
 import { useAuthStore } from "../store/authStore";
 
@@ -57,6 +57,7 @@ export default function Login() {
     </div>
     <div className="flex min-h-screen items-center justify-center px-5 py-12 sm:px-10 lg:px-12">
       <motion.div initial={reduceMotion ? false : { opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .45, delay: .05 }} className="w-full max-w-md">
+        <Link to="/" className="mb-8 inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 transition hover:text-indigo-700"><ArrowLeft size={16} /> Back to home</Link>
         <div className="mb-9 flex items-center gap-3 lg:hidden"><span className="grid h-11 w-11 place-items-center rounded-xl bg-indigo-600 text-white"><FlaskConical size={23} /></span><strong className="text-2xl tracking-tight">LabLink</strong></div>
         <div className="mb-8"><p className="mb-2 text-xs font-bold uppercase tracking-[.15em] text-indigo-700">Welcome back</p><h2 className="text-[2.2rem] font-bold tracking-tight text-[#182438]">Sign in to LabLink</h2><p className="mt-2 text-sm text-slate-600">Enter your credentials to continue to your workspace.</p></div>
         <form onSubmit={handleSubmit} className="space-y-5">
