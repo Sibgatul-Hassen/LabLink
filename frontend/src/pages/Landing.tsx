@@ -8,7 +8,7 @@ import QuoteCarousel from "../components/landing/QuoteCarousel";
 import AboutContent from "../components/landing/AboutContent";
 import UserManual from "../components/landing/UserManual";
 import SignupRequest, { CONTACT_EMAIL } from "../components/landing/SignupRequest";
-import logoMark from "../assets/brand/logo-mark.webp";
+import ThemeLogo from "../components/ThemeLogo";
 
 type ModalKind = "about" | "manual" | "signup" | null;
 
@@ -143,11 +143,7 @@ export default function Landing() {
       >
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-3 px-4 sm:h-20 sm:px-6 lg:px-8">
           <Link to="/" className="group flex items-center gap-2.5" aria-label="LabLink home">
-            <img
-              src={logoMark}
-              alt=""
-              className="h-8 w-auto transition-transform duration-500 group-hover:scale-110 sm:h-10"
-            />
+            <ThemeLogo className="h-8 w-auto transition-transform duration-500 group-hover:scale-110 sm:h-10" />
             <span className="font-display text-xl font-bold tracking-tight sm:text-2xl">
               <span className="text-brand-500">Lab</span>
               <span className="text-white">Link</span>

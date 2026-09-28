@@ -1,4 +1,4 @@
-import logoFull from "../../assets/brand/logo-full.webp";
+import ThemeLogo from "../ThemeLogo";
 
 const TIERS = [
   { name: "Department pool", detail: "Whatever your department's classes haven't taken is free to draw — no approval." },
@@ -17,7 +17,7 @@ const PILLARS = [
 export default function AboutContent() {
   return (
     <div className="space-y-7 text-sm leading-relaxed">
-      <img src={logoFull} alt="LabLink — Connect · Collaborate · Innovate" className="stagger-in mx-auto w-56 sm:w-64" />
+      <ThemeLogo variant="full" alt="LabLink — Connect · Collaborate · Innovate" className="stagger-in mx-auto block w-56 sm:w-64" />
 
       <section className="stagger-in" style={{ animationDelay: "60ms" }}>
         <p className="text-base text-slate-300">
