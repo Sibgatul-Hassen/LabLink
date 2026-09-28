@@ -439,7 +439,7 @@ export default function Components() {
                   <th className="w-12 px-4 py-3" />
                   {([ ["code", "Code"], ["name", "Name"], ["category", "Category"], ["sizeClass", "Size"], ["unitCost", "Unit Cost"], ["stock", "Stock"] ] as const).map(([field, label]) => (
                     <th key={field} aria-sort={sortField === field ? sortDirection : "none"} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      <button type="button" onClick={() => sortBy(field)} className="inline-flex items-center gap-1 hover:text-indigo-700" title={`Sort visible rows by ${label}`}>
+                      <button type="button" onClick={() => sortBy(field)} className="inline-flex items-center gap-1 hover:text-[var(--app-accent)]" title={`Sort visible rows by ${label}`}>
                         {label}<span aria-hidden="true" className="text-[10px]">{sortField === field ? sortDirection === "ascending" ? "↑" : "↓" : "↕"}</span>
                       </button>
                     </th>
@@ -602,7 +602,7 @@ export default function Components() {
                                   onChange={(e) =>
                                     setNewSubstituteId(e.target.value)
                                   }
-                                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                                 >
                                   <option value="">Select a component</option>
                                   {allComponents
@@ -630,7 +630,7 @@ export default function Components() {
                                   onChange={(e) =>
                                     setNewSubstituteRatio(e.target.value)
                                   }
-                                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                                 />
                               </div>
 
@@ -648,7 +648,7 @@ export default function Components() {
                                   onChange={(e) =>
                                     setNewSubstituteNotes(e.target.value)
                                   }
-                                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                                 />
                               </div>
 

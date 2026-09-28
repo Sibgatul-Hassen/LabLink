@@ -158,7 +158,7 @@ function ApproveModal({
                             [line.id]: Number(e.target.value),
                           }))
                         }
-                        className="w-20 rounded border border-slate-300 px-2 py-1 text-right text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-20 rounded border border-slate-300 px-2 py-1 text-right text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                       />
                     </td>
                   </tr>
@@ -340,7 +340,7 @@ function BorrowCard({
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge status={request.status} />
             {request.requisition && (
-              <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-600">
+              <span className="rounded-full bg-[var(--app-accent-soft)] px-2 py-0.5 text-xs font-medium text-[var(--app-accent)]">
                 Via Requisition
               </span>
             )}
@@ -592,7 +592,7 @@ export default function BorrowRequests() {
           onClick={() => setActiveTab("incoming")}
           className={`relative px-5 py-2.5 text-sm font-medium transition-colors ${
             activeTab === "incoming"
-              ? "border-b-2 border-blue-600 text-blue-600"
+              ? "border-b-2 border-[var(--app-accent)] text-[var(--app-accent)]"
               : "text-slate-500 hover:text-slate-700"
           }`}
         >
@@ -609,7 +609,7 @@ export default function BorrowRequests() {
           onClick={() => setActiveTab("outgoing")}
           className={`px-5 py-2.5 text-sm font-medium transition-colors ${
             activeTab === "outgoing"
-              ? "border-b-2 border-blue-600 text-blue-600"
+              ? "border-b-2 border-[var(--app-accent)] text-[var(--app-accent)]"
               : "text-slate-500 hover:text-slate-700"
           }`}
         >
@@ -621,7 +621,7 @@ export default function BorrowRequests() {
       <div
         className={`rounded-lg px-4 py-3 text-sm ${
           activeTab === "incoming"
-            ? "bg-indigo-50 text-indigo-700"
+            ? "bg-[var(--app-accent-soft)] text-[var(--app-accent)]"
             : "bg-teal-50 text-teal-700"
         }`}
       >
@@ -649,7 +649,7 @@ export default function BorrowRequests() {
           id="status-filter"
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as BorrowStatus | "ALL")}
-          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
         >
           {STATUS_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>

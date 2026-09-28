@@ -1122,7 +1122,7 @@ export default function Requisitions() {
                 setTypeFilter(event.target.value);
                 setPage(1);
               }}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
             >
               <option value="">All types</option>
               <option value="CLASS">Class</option>
@@ -1146,7 +1146,7 @@ export default function Requisitions() {
                 setStatusFilter(event.target.value);
                 setPage(1);
               }}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
             >
               <option value="">All statuses</option>
               {Object.keys(STATUS_STYLES).map((status) => (
@@ -1444,7 +1444,7 @@ export default function Requisitions() {
                                               [line.id]: event.target.value,
                                             }))
                                           }
-                                          className="w-24 rounded-lg border border-slate-300 px-3 py-1.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                                          className="w-24 rounded-lg border border-slate-300 px-3 py-1.5 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                                         />
 
                                         <span className="text-xs text-slate-500">
@@ -1513,7 +1513,7 @@ export default function Requisitions() {
                                   onChange={(event) =>
                                     setNewLineComponentId(event.target.value)
                                   }
-                                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                                 >
                                   <option value="">Select a component</option>
                                   {components.map((component) => (
@@ -1543,7 +1543,7 @@ export default function Requisitions() {
                                   onChange={(event) =>
                                     setNewLineQty(event.target.value)
                                   }
-                                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                                 />
                               </div>
 
@@ -1938,7 +1938,7 @@ export default function Requisitions() {
                     onChange={(event) =>
                       setFormType(event.target.value as RequisitionType)
                     }
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                   >
                     {manualAllowedTypes.map((type) => (
                       <option key={type} value={type} disabled={personalBlocked && type === "PERSONAL"}>
@@ -1962,7 +1962,7 @@ export default function Requisitions() {
                       type="datetime-local"
                       value={formFrom}
                       onChange={(event) => setFormFrom(event.target.value)}
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                     />
                   </div>
 
@@ -1979,7 +1979,7 @@ export default function Requisitions() {
                       type="datetime-local"
                       value={formTo}
                       onChange={(event) => setFormTo(event.target.value)}
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                     />
                   </div>
                 </div>
@@ -2192,7 +2192,7 @@ export default function Requisitions() {
                                       event.target.value,
                                     )
                                   }
-                                  className="w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                                  className="w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                                 />
                               </td>
                             ))}

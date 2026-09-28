@@ -564,7 +564,7 @@ export default function PurchaseRequests() {
                 setStatusFilter(event.target.value);
                 setPage(1);
               }}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
             >
               <option value="">All statuses</option>
               {Object.keys(STATUS_STYLES).map((status) => (
@@ -590,7 +590,7 @@ export default function PurchaseRequests() {
                 setUrgencyFilter(event.target.value);
                 setPage(1);
               }}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
             >
               <option value="">All urgencies</option>
               {Object.keys(URGENCY_STYLES).map((urgency) => (
@@ -745,7 +745,7 @@ export default function PurchaseRequests() {
                     }))
                   }
                   placeholder="Example: PO-2027-0142"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                 />
               </div>
 
@@ -768,7 +768,7 @@ export default function PurchaseRequests() {
                       qtyReceived: event.target.value,
                     }))
                   }
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                 />
 
                 <p className="mt-2 text-xs text-slate-500">

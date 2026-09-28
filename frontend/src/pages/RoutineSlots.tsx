@@ -337,7 +337,7 @@ export default function RoutineSlots() {
                 setLabFilter(event.target.value);
                 setPage(1);
               }}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
             >
               <option value="">All labs</option>
               {labs.map((lab) => (
@@ -363,7 +363,7 @@ export default function RoutineSlots() {
                 setDayFilter(event.target.value);
                 setPage(1);
               }}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
             >
               <option value="">All days</option>
               {DAY_NAMES.map((day, index) => (
@@ -563,7 +563,7 @@ export default function RoutineSlots() {
                   onChange={(event) => setCsvText(event.target.value)}
                   spellCheck={false}
                   placeholder={`${CSV_HEADER}\nCSE 3216,A,Spring 2026,2,08:30,11:30,302,2026-08-01,2026-12-20`}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 font-mono text-xs outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 font-mono text-xs outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                 />
               </div>
 
@@ -740,7 +740,7 @@ export default function RoutineSlots() {
                       sectionId: event.target.value,
                     }))
                   }
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                 >
                   <option value="">Select a section</option>
                   {sections.map((section) => (
@@ -769,7 +769,7 @@ export default function RoutineSlots() {
                       labId: event.target.value,
                     }))
                   }
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                 >
                   <option value="">Select a lab</option>
                   {labs.map((lab) => (
@@ -797,7 +797,7 @@ export default function RoutineSlots() {
                       dayOfWeek: event.target.value,
                     }))
                   }
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                 >
                   {DAY_NAMES.map((day, index) => (
                     <option key={day} value={index}>
@@ -826,7 +826,7 @@ export default function RoutineSlots() {
                         startTime: event.target.value,
                       }))
                     }
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                   />
                 </div>
 
@@ -848,7 +848,7 @@ export default function RoutineSlots() {
                         endTime: event.target.value,
                       }))
                     }
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                   />
                 </div>
               </div>
@@ -872,7 +872,7 @@ export default function RoutineSlots() {
                         effectiveFrom: event.target.value,
                       }))
                     }
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                   />
                 </div>
 
@@ -894,7 +894,7 @@ export default function RoutineSlots() {
                         effectiveTo: event.target.value,
                       }))
                     }
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                   />
                 </div>
               </div>

@@ -5,7 +5,7 @@ import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer,
 import type { Component } from "../../types";
 import { ActivityContent, DashboardPanel, type ChartDatum } from "./Shared";
 
-const categoryColors = ["#4f46e5", "#0f9f82", "#f59e0b", "#5b8def", "#9b71d6", "#e67298"];
+const categoryColors = ["#fc6800", "#0f9f82", "#f59e0b", "#5b8def", "#9b71d6", "#e67298"];
 type StockedComponent = Component & { stock: NonNullable<Component["stock"]> };
 
 export function InventoryCategoryChart({ data, loading, error }: {
@@ -65,11 +65,11 @@ export function StockAttentionPanel({ items, lowStockCount, loading, error }: {
                     <XAxis dataKey="code" tick={{ fill: "var(--app-muted)", fontSize: 10 }} angle={-28} textAnchor="end" height={56} interval={0} tickFormatter={(code: string) => code.length > 12 ? `${code.slice(0, 11)}…` : code} />
                     <YAxis allowDecimals={false} tick={{ fill: "var(--app-muted)", fontSize: 11 }} />
                     <Tooltip contentStyle={{ background: "var(--app-surface)", border: "1px solid var(--app-border)", borderRadius: 12, color: "var(--app-ink)" }} />
-                    <Bar dataKey="onHand" name="On hand" fill="#4f46e5" radius={[4, 4, 0, 0]} maxBarSize={36} isAnimationActive={!reducedMotion} />
+                    <Bar dataKey="onHand" name="On hand" fill="#fc6800" radius={[4, 4, 0, 0]} maxBarSize={36} isAnimationActive={!reducedMotion} />
                     <Bar dataKey="reorderPoint" name="Reorder point" fill="#0f9f82" radius={[4, 4, 0, 0]} maxBarSize={36} isAnimationActive={!reducedMotion} />
                   </BarChart></ResponsiveContainer>
                 </div><div className="mt-3 flex flex-wrap gap-4 text-xs text-[var(--app-muted)]">
-                  <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#4f46e5]" />On hand</span>
+                  <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#fc6800]" />On hand</span>
                   <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-[#0f9f82]" />Reorder point</span>
                 </div></>}
       </motion.div>
