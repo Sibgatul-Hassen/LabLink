@@ -80,7 +80,7 @@ export default function NotificationBell() {
         aria-controls="notification-panel"
         aria-label={`Notifications — ${unreadCount} unread`}
         onClick={() => setOpen((v) => !v)}
-        className="relative rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        className="relative rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-500"
       >
         {/* Bell SVG */}
         <svg
@@ -118,7 +118,7 @@ export default function NotificationBell() {
                 id="mark-all-read"
                 type="button"
                 onClick={handleMarkAllRead}
-                className="text-xs text-blue-600 hover:underline"
+                className="text-xs text-[var(--app-accent)] hover:underline"
               >
                 Mark all read
               </button>

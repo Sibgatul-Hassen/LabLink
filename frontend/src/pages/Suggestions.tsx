@@ -166,7 +166,7 @@ export default function Suggestions() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[.14em] text-indigo-700"><Lightbulb size={15} /> Decision workspace</p>
+          <p className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[.14em] text-[var(--app-accent)]"><Lightbulb size={15} /> Decision workspace</p>
           <h2 className="text-2xl font-bold text-slate-900">Suggestions</h2>
           <p className="mt-1 text-sm text-slate-500">
             {user?.role === "STUDENT" ? "View schedule suggestions relevant to your department." : "Review the evidence before making a change. Accepting records your decision and feedback."}

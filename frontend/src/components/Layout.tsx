@@ -10,6 +10,7 @@ import {
   Warehouse, Wrench, X, type LucideIcon,
 } from "lucide-react";
 import NotificationBell from "./NotificationBell";
+import logoMark from "../assets/brand/logo-mark.webp";
 import { useAuthStore } from "../store/authStore";
 import type { Role } from "../types";
 import { canShowInNavigation } from "../auth/permissions";
@@ -114,8 +115,8 @@ export default function Layout() {
       <div className="flex h-full flex-col">
         <div className="flex h-[76px] items-center justify-between gap-2 border-b border-slate-700/60 px-4">
           <NavLink to="/dashboard" className="flex min-w-0 items-center gap-3" aria-label="LabLink dashboard">
-            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-indigo-500 text-white shadow-lg shadow-indigo-500/20"><FlaskConical size={21} /></span>
-            <span className={collapsed ? "lg:hidden" : ""}><strong className="block text-[17px] font-bold tracking-tight text-slate-50">LabLink</strong><small className="block text-[10px] font-semibold uppercase tracking-[.17em] text-slate-400">Lab operations</small></span>
+            <img src={logoMark} alt="" className="w-11 shrink-0 object-contain" />
+            <span className={collapsed ? "lg:hidden" : ""}><strong className="font-display block text-[17px] font-bold tracking-tight"><span className="text-brand-500">Lab</span><span className="text-slate-50">Link</span></strong><small className="block text-[10px] font-semibold uppercase tracking-[.17em] text-slate-400">Lab operations</small></span>
           </NavLink>
           <button type="button" className="hidden rounded-lg p-1.5 text-slate-300 hover:bg-slate-700 lg:block" onClick={() => setCollapsed((value) => !value)} aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}>{collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}</button>
           <button type="button" className="rounded-lg p-1.5 text-slate-300 lg:hidden" onClick={() => setMobileOpen(false)} aria-label="Close navigation"><X size={20} /></button>
@@ -125,13 +126,13 @@ export default function Layout() {
             <p className={`app-nav-label mb-2 px-3 ${collapsed ? "lg:hidden" : ""}`}>{group.title}</p>
             <div className="space-y-1">{group.items.map(({ icon: Icon, ...item }) =>
               <NavLink key={item.to} to={item.to} title={collapsed ? item.label : undefined}
-                className={({ isActive }) => `relative flex min-h-10 items-center gap-3 rounded-xl px-3 py-2 text-[13px] font-medium transition-colors ${collapsed ? "lg:justify-center" : ""} ${isActive ? "bg-[#2a3a59] text-white" : "hover:bg-slate-700/60"}`}>
+                className={({ isActive }) => `relative flex min-h-10 items-center gap-3 rounded-xl px-3 py-2 text-[13px] font-medium transition-colors ${collapsed ? "lg:justify-center" : ""} ${isActive ? "bg-brand-500/15 text-white" : "hover:bg-slate-700/60"}`}>
                 <Icon size={18} strokeWidth={1.9} className="shrink-0" /><span className={`truncate ${collapsed ? "lg:hidden" : ""}`}>{item.label}</span>
               </NavLink>)}</div>
           </div>)}
         </nav>
         <div className="border-t border-slate-700/60 p-3"><div className={`flex items-center gap-3 rounded-xl bg-slate-700/40 p-2.5 ${collapsed ? "lg:justify-center" : ""}`}>
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-indigo-300 font-bold text-slate-900">{user.fullName[0].toUpperCase()}</span>
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-400 font-bold text-slate-950">{user.fullName[0].toUpperCase()}</span>
           <span className={`min-w-0 ${collapsed ? "lg:hidden" : ""}`}><strong className="block truncate text-xs text-slate-50">{user.fullName}</strong><small className="block truncate text-[11px] text-slate-300">{formatRole(user.role)}</small></span>
         </div></div>
       </div>
@@ -143,11 +144,11 @@ export default function Layout() {
           <div className="min-w-0"><p className="text-[11px] font-semibold uppercase tracking-[.13em] text-[var(--app-muted)]">Workspace / {current?.label ?? "LabLink"}</p><h1 className="truncate text-base font-bold text-[var(--app-ink)] sm:text-lg">{current?.label ?? "Workspace"}</h1></div>
         </div>
         <div className="flex items-center gap-2 sm:gap-3">
-          <button type="button" onClick={() => { setSearch(""); setSearchOpen(true); }} className="hidden min-w-[210px] items-center gap-2 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-soft)] px-3 py-2 text-sm text-[var(--app-muted)] transition hover:border-indigo-300 md:flex" aria-label="Search pages"><Search size={16} /><span className="flex-1 text-left">Search pages</span><kbd className="rounded border border-[var(--app-border)] px-1.5 py-0.5 text-[10px]">Ctrl K</kbd></button>
+          <button type="button" onClick={() => { setSearch(""); setSearchOpen(true); }} className="hidden min-w-[210px] items-center gap-2 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-soft)] px-3 py-2 text-sm text-[var(--app-muted)] transition hover:border-brand-300 md:flex" aria-label="Search pages"><Search size={16} /><span className="flex-1 text-left">Search pages</span><kbd className="rounded border border-[var(--app-border)] px-1.5 py-0.5 text-[10px]">Ctrl K</kbd></button>
           <button type="button" onClick={() => setSearchOpen(true)} className="app-icon-button md:hidden" aria-label="Search pages"><Search size={18} /></button>
           <button type="button" onClick={() => setTheme((value) => value === "light" ? "dark" : "light")} className="app-icon-button" aria-label={theme === "light" ? "Switch to dark mode" : "Switch to light mode"}>{theme === "light" ? <Moon size={18} /> : <Sun size={18} />}</button>
           <NotificationBell />
-          <DropdownMenu.Root><DropdownMenu.Trigger asChild><button type="button" className="app-icon-button hidden !w-auto gap-2 px-2.5 sm:inline-flex" aria-label="Open profile menu"><span className="grid h-7 w-7 place-items-center rounded-lg bg-indigo-100 text-xs font-bold text-indigo-800">{user.fullName[0].toUpperCase()}</span><span className="hidden max-w-24 truncate text-xs font-semibold text-[var(--app-ink)] xl:inline">{user.fullName.split(" ")[0]}</span></button></DropdownMenu.Trigger>
+          <DropdownMenu.Root><DropdownMenu.Trigger asChild><button type="button" className="app-icon-button hidden !w-auto gap-2 px-2.5 sm:inline-flex" aria-label="Open profile menu"><span className="grid h-7 w-7 place-items-center rounded-lg bg-[var(--app-accent-soft)] text-xs font-bold text-[var(--app-accent)]">{user.fullName[0].toUpperCase()}</span><span className="hidden max-w-24 truncate text-xs font-semibold text-[var(--app-ink)] xl:inline">{user.fullName.split(" ")[0]}</span></button></DropdownMenu.Trigger>
             <DropdownMenu.Portal><DropdownMenu.Content align="end" sideOffset={8} className="z-[70] min-w-56 rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface)] p-2 text-[var(--app-ink)] shadow-xl">
               <div className="border-b border-[var(--app-border)] px-3 py-2"><p className="text-sm font-semibold">{user.fullName}</p><p className="text-xs text-[var(--app-muted)]">{formatRole(user.role)} · {user.departmentCode ?? "All departments"}</p></div>
               <DropdownMenu.Item onSelect={() => setTheme((value) => value === "light" ? "dark" : "light")} className="mt-1 flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-sm outline-none hover:bg-[var(--app-surface-soft)] focus:bg-[var(--app-surface-soft)]">{theme === "light" ? <Moon size={16} /> : <Sun size={16} />} {theme === "light" ? "Dark mode" : "Light mode"}</DropdownMenu.Item>

@@ -58,7 +58,7 @@ export default function StockTransferDialog({ stock, onClose }: { stock: Stock |
         <label className="block text-sm font-semibold">Note (optional)<textarea maxLength={500} rows={3} value={note} onChange={(event) => setNote(event.target.value)} className="mt-1.5 w-full rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] p-2.5" /></label>
         {departments.isError && <p role="alert" className="text-sm text-rose-700">Could not load departments.</p>}
         {error && <p role="alert" className="rounded-xl bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
-        <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={onClose} className="rounded-xl border border-[var(--app-border)] px-4 py-2 text-sm font-semibold">Cancel</button><button type="submit" disabled={transfer.isPending || departments.isLoading} className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{transfer.isPending && <LoaderCircle size={15} className="animate-spin" />}Transfer allocation</button></div>
+        <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={onClose} className="rounded-xl border border-[var(--app-border)] px-4 py-2 text-sm font-semibold">Cancel</button><button type="submit" disabled={transfer.isPending || departments.isLoading} className="inline-flex items-center gap-2 rounded-xl bg-[#c85200] hover:bg-[#a94500] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{transfer.isPending && <LoaderCircle size={15} className="animate-spin" />}Transfer allocation</button></div>
       </form>
     </Dialog.Content>
   </Dialog.Portal></Dialog.Root>;

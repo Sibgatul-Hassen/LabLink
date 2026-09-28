@@ -50,7 +50,7 @@ export default function PurchaseActions({ canAggregate }: { canAggregate: boolea
 
   return <><div className="flex flex-wrap gap-2">
     {canAggregate && <button type="button" onClick={() => openMode("aggregate")} className="inline-flex items-center gap-2 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] px-4 py-2 text-sm font-semibold text-[var(--app-ink)]"><RefreshCw size={16} /> Reconcile pending</button>}
-    <button type="button" onClick={() => openMode("create")} className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white"><PackagePlus size={16} /> New Purchase Request</button>
+    <button type="button" onClick={() => openMode("create")} className="inline-flex items-center gap-2 rounded-xl bg-[#c85200] hover:bg-[#a94500] px-4 py-2 text-sm font-semibold text-white"><PackagePlus size={16} /> New Purchase Request</button>
   </div>
   <Dialog.Root open={open} onOpenChange={setOpen}><Dialog.Portal>
     <Dialog.Overlay className="fixed inset-0 z-[80] bg-slate-950/55 backdrop-blur-md" />
@@ -62,7 +62,7 @@ export default function PurchaseActions({ canAggregate }: { canAggregate: boolea
         {mode === "aggregate" && <p className="rounded-xl bg-[var(--app-surface-soft)] p-3 text-xs leading-5 text-[var(--app-muted)]">New purchase requests aggregate automatically. Use this action only to reconcile pending requests for the selected component.</p>}
         {components.isError && <p role="alert" className="text-sm text-rose-700">Could not load components.</p>}
         {error && <p role="alert" className="rounded-xl bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
-        <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setOpen(false)} className="rounded-xl border border-[var(--app-border)] px-4 py-2 text-sm font-semibold">Cancel</button><button type="submit" disabled={create.isPending || aggregate.isPending || components.isLoading} className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{(create.isPending || aggregate.isPending) && <LoaderCircle size={15} className="animate-spin" />}{mode === "create" ? "Create request" : "Reconcile"}</button></div>
+        <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setOpen(false)} className="rounded-xl border border-[var(--app-border)] px-4 py-2 text-sm font-semibold">Cancel</button><button type="submit" disabled={create.isPending || aggregate.isPending || components.isLoading} className="inline-flex items-center gap-2 rounded-xl bg-[#c85200] hover:bg-[#a94500] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{(create.isPending || aggregate.isPending) && <LoaderCircle size={15} className="animate-spin" />}{mode === "create" ? "Create request" : "Reconcile"}</button></div>
       </form>
     </Dialog.Content>
   </Dialog.Portal></Dialog.Root></>;
