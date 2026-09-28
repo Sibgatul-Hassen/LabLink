@@ -65,12 +65,29 @@ const browserRun = `
     link.click();
     await wait(() => location.pathname === href, href + " navigation");
   };
+  const checkDashboard = async (label) => {
+    const metrics = await wait(() => document.querySelector('[aria-label="Dashboard metrics"]'), label + " metrics");
+    await wait(() => !metrics.querySelector('[aria-label^="Loading "]'), label + " metrics loaded");
+    if (metrics.textContent.includes("Unable to load")) throw new Error(label + " metric request failed");
+    if (document.querySelector('.app-content')?.textContent.includes("Unable to load chart data")) throw new Error(label + " chart request failed");
+    const content = document.querySelector('.app-content');
+    if (content.scrollWidth > content.clientWidth + 2) throw new Error(label + " overflows at " + innerWidth + "px");
+    const actualColumns = getComputedStyle(metrics).gridTemplateColumns.split(" ").length;
+    const expectedColumns = innerWidth >= 1280 ? 4 : innerWidth >= 640 ? 2 : 1;
+    if (actualColumns !== expectedColumns) throw new Error(label + " columns: " + actualColumns + " at " + innerWidth + "px");
+  };
   try {
     const email = await wait(() => document.querySelector("#email"), "login form");
     fill(email, "sysadmin@uiu.ac.bd");
     fill(document.querySelector("#password"), "Password123!");
     button("Sign in").click();
     await wait(() => location.pathname === "/dashboard", "login navigation");
+    await wait(() => document.querySelector('[aria-label="Dashboard metrics"]')?.textContent.includes("User accounts")
+      && document.querySelector('.app-content')?.textContent.includes("Accounts by role"), "system dashboard");
+    await checkDashboard("system");
+    const auditPanel = [...document.querySelectorAll('section')].find((panel) => panel.querySelector('h3')?.textContent === "Recent audit events");
+    await wait(() => auditPanel?.textContent.includes("Requisition returned"), "readable audit activity");
+    if (auditPanel.textContent.includes("POST /requisitions")) throw new Error("Dashboard still displays raw audit paths");
 
     const themeToggle = await wait(() => document.querySelector('button[aria-label="Switch to dark mode"]'), "theme switch");
     themeToggle.click();
@@ -114,6 +131,10 @@ const browserRun = `
     fill(document.querySelector("#password"), "Password123!");
     button("Sign in").click();
     await wait(() => location.pathname === "/dashboard", "lab assistant navigation");
+    await wait(() => document.querySelector('[aria-label="Dashboard metrics"]')?.textContent.includes("Assigned labs")
+      && document.querySelector('.app-content')?.textContent.includes("Damage workflow"), "lab assistant dashboard");
+    await checkDashboard("lab assistant");
+    if (document.querySelector('.app-content')?.textContent.includes("User accounts")) throw new Error("System dashboard persisted after role switch");
 
     await navigate("/damage-reports");
     await wait(() => button("Start maintenance"), "damage report");
@@ -128,6 +149,24 @@ const browserRun = `
     fill(document.querySelector("#password"), "Password123!");
     button("Sign in").click();
     await wait(() => location.pathname === "/dashboard", "central navigation");
+    await wait(() => document.querySelector('[aria-label="Dashboard metrics"]')?.textContent.includes("Catalogue items")
+      && document.querySelector('.app-content')?.textContent.includes("Inventory by category"), "central dashboard");
+    await checkDashboard("central");
+    const categoryPanel = [...document.querySelectorAll('section')].find((panel) => panel.querySelector('h3')?.textContent === "Inventory by category");
+    if (!categoryPanel?.querySelector('[role="img"][aria-label^="Inventory by category:"]')) throw new Error("Inventory donut chart is missing");
+    const stockPanel = [...document.querySelectorAll('section')].find((panel) => panel.querySelector('h3')?.textContent === "Stock attention");
+    if (!stockPanel?.textContent.includes("Multimeter") || !stockPanel.textContent.includes("3 above")
+      || stockPanel.textContent.includes("No stock records")) throw new Error("Healthy stock watch list is empty or mislabeled");
+    const showChart = stockPanel.querySelector('button[aria-label="Show stock chart"]');
+    if (!showChart || showChart.getAttribute("aria-pressed") !== "false") throw new Error("Stock chart toggle has the wrong initial state");
+    showChart.click();
+    const stockChart = await wait(() => stockPanel.querySelector('[role="img"][aria-label^="Stock attention:"]'), "stock chart view");
+    if (!stockChart.getAttribute("aria-label").includes("METER 5 on hand, reorder at 2")) throw new Error("Stock chart differs from stock list");
+    if (document.querySelector('.app-content').scrollWidth > document.querySelector('.app-content').clientWidth + 2) throw new Error("Stock chart overflows dashboard");
+    const showList = stockPanel.querySelector('button[aria-label="Show stock list"]');
+    if (!showList || showList.getAttribute("aria-pressed") !== "true") throw new Error("Stock list toggle did not update");
+    showList.click();
+    await wait(() => stockPanel.querySelector('button[aria-label="Show stock chart"]') && stockPanel.textContent.includes("Multimeter"), "stock list restored");
     await navigate("/damage-reports");
     if (button("Start maintenance") || button("Mark repaired")) throw new Error("Central maintenance action was visible");
 
@@ -226,6 +265,9 @@ const browserRun = `
     fill(document.querySelector("#password"), "Password123!");
     button("Sign in").click();
     await wait(() => location.pathname === "/dashboard", "student navigation");
+    await wait(() => document.querySelector('[aria-label="Dashboard metrics"]')?.textContent.includes("My requests")
+      && document.querySelector('.app-content')?.textContent.includes("My request progress"), "student dashboard");
+    await checkDashboard("student");
     await navigate("/requisitions");
     await wait(() => document.body.textContent.includes("Outstanding penalties have reached"), "student penalty block");
     if (!button("New Requisition")?.disabled) throw new Error("blocked personal button remained enabled");
@@ -233,11 +275,27 @@ const browserRun = `
     await wait(() => location.pathname === "/penalties" && document.body.textContent.includes("Penalties"), "penalty link keeps session");
 
     button("Logout").click();
+    const secondStudentEmail = await wait(() => document.querySelector("#email"), "second student login");
+    fill(secondStudentEmail, "student2@uiu.ac.bd");
+    fill(document.querySelector("#password"), "Password123!");
+    button("Sign in").click();
+    await wait(() => location.pathname === "/dashboard", "second student navigation");
+    await checkDashboard("second student");
+    const ownRequests = [...document.querySelectorAll('[aria-label="Dashboard metrics"] a')]
+      .find((card) => card.textContent.includes("My requests"));
+    if (!ownRequests || ![...ownRequests.querySelectorAll("p")].some((value) => value.textContent.trim() === "0")) {
+      throw new Error("Second student saw another student's cached request count");
+    }
+
+    button("Logout").click();
     const headEmail = await wait(() => document.querySelector("#email"), "department head login");
     fill(headEmail, "storehead@uiu.ac.bd");
     fill(document.querySelector("#password"), "Password123!");
     button("Sign in").click();
     await wait(() => location.pathname === "/dashboard", "department head navigation");
+    await wait(() => document.querySelector('[aria-label="Dashboard metrics"]')?.textContent.includes("Purchase approvals")
+      && document.querySelector('.app-content')?.textContent.includes("Purchase urgency"), "department dashboard");
+    await checkDashboard("department");
     await navigate("/purchase-requests");
     const rung1Row = await wait(() => [...document.querySelectorAll("tr")]
       .find((row) => row.textContent.includes("Rung 1") && row.textContent.includes("Multimeter")), "rung 1 approval row");
@@ -251,20 +309,23 @@ const browserRun = `
     await wait(() => ![...document.querySelectorAll("tr")].some((row) => row.textContent.includes("Rung 1") && row.textContent.includes("Multimeter")), "rung 1 decision refresh");
 
     const roleDashboards = [
-      ["instructor@uiu.ac.bd", "Plan your assigned classes", "/sessions", "/purchase-requests"],
-      ["labasst@uiu.ac.bd", "Prepare assigned labs", "/damage-reports", "/users"],
-      ["officeadmin@uiu.ac.bd", "Review final purchase approvals", "/purchase-requests", "/users"],
+      ["instructor@uiu.ac.bd", "Plan your assigned classes", "Class session progress", "/sessions", "/purchase-requests"],
+      ["labasst@uiu.ac.bd", "Prepare assigned labs", "Damage workflow", "/damage-reports", "/users"],
+      ["officeadmin@uiu.ac.bd", "Review final purchase approvals", "Frequent shortages", "/purchase-requests", "/users"],
     ];
-    for (const [address, greeting, allowed, forbidden] of roleDashboards) {
+    for (const [address, greeting, chart, allowed, forbidden] of roleDashboards) {
       button("Logout").click();
       const roleEmail = await wait(() => document.querySelector("#email"), address + " login");
       fill(roleEmail, address);
       fill(document.querySelector("#password"), "Password123!");
       button("Sign in").click();
       await wait(() => location.pathname === "/dashboard" && document.body.textContent.includes(greeting), address + " dashboard");
+      await wait(() => document.querySelector('.app-content')?.textContent.includes(chart), address + " chart");
+      await checkDashboard(address);
       if (!document.querySelector('a[href="' + allowed + '"]')) throw new Error(address + " missing " + allowed);
       if (document.querySelector('a[href="' + forbidden + '"]')) throw new Error(address + " shows " + forbidden);
     }
+    if (runtimeErrors.length) throw new Error("Dashboard runtime errors: " + runtimeErrors.join(" | "));
     result.dataset.status = "passed";
     result.textContent = "Browser interactions passed";
   } catch (error) {
@@ -286,6 +347,7 @@ const browserRun = `
   let approvedPurchaseStatus = "APPROVED";
   let stockOnHand = 5;
   let currentRole = "SYSTEM_ADMIN";
+  let currentUserId = "admin-1";
   let web;
   const damage = () => ({
     id: "damage-1", componentId: "component-1", requisitionId: "request-1", qty: 1,
@@ -358,18 +420,19 @@ const browserRun = `
     req.on("end", () => {
       const url = new URL(req.url, "http://localhost");
       const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : {};
-      events.push({ method: req.method, path: url.pathname, body });
+      events.push({ method: req.method, path: url.pathname, body, role: currentRole });
       let data = {};
       if (url.pathname === "/api/auth/login") {
-        currentRole = body.email === "student@uiu.ac.bd" ? "STUDENT"
+        currentRole = ["student@uiu.ac.bd", "student2@uiu.ac.bd"].includes(body.email) ? "STUDENT"
           : body.email === "storehead@uiu.ac.bd" ? "DEPT_STORE_HEAD"
             : body.email === "central@uiu.ac.bd" ? "CENTRAL_STORE_OFFICER"
               : body.email === "instructor@uiu.ac.bd" ? "INSTRUCTOR"
                 : body.email === "labasst@uiu.ac.bd" ? "LAB_ASSISTANT"
                   : body.email === "officeadmin@uiu.ac.bd" ? "OFFICE_ADMIN" : "SYSTEM_ADMIN";
+        currentUserId = body.email === "student2@uiu.ac.bd" ? "student-2" : body.email === "student@uiu.ac.bd" ? "student-1" : "other";
         data = {
           token: "test-token", user: currentRole === "STUDENT"
-            ? { id: "student-1", email: "student@uiu.ac.bd", fullName: "Student",
+            ? { id: currentUserId, email: body.email, fullName: "Student",
               role: "STUDENT", departmentId: "cse", departmentCode: "CSE" }
             : currentRole === "DEPT_STORE_HEAD"
               ? { id: "head-1", email: "storehead@uiu.ac.bd", fullName: "Department Head",
@@ -387,6 +450,16 @@ const browserRun = `
       }
       else if (url.pathname === "/api/components") data = { data: [component()], total: 1, page: 1, limit: 20 };
       else if (url.pathname === "/api/departments") data = { data: departments(), total: 2, page: 1, limit: 20 };
+      else if (url.pathname === "/api/users") data = { data: [{ id: "admin-1", role: "SYSTEM_ADMIN", fullName: "System Admin", isActive: true }], total: 1, page: 1, limit: 20 };
+      else if (url.pathname === "/api/audit-logs") data = { data: [
+        { id: "audit-1", actorId: "central-1", action: "POST /requisitions/request-1/return", entityType: "requisitions", entityId: "/requisitions/request-1/return", createdAt: "2026-09-27T00:00:00.000Z" },
+        { id: "audit-2", actorId: "admin-1", action: "UPDATE", entityType: "User", entityId: "admin-1", createdAt: "2026-09-26T00:00:00.000Z" },
+      ], total: 2, page: 1, limit: 20 };
+      else if (url.pathname === "/api/labs") data = { data: [], total: 1, page: 1, limit: 20 };
+      else if (url.pathname === "/api/sections") data = { data: [], total: 1, page: 1, limit: 20 };
+      else if (url.pathname === "/api/sessions") data = { data: [], total: 1, page: 1, limit: 20 };
+      else if (url.pathname === "/api/borrow-requests/incoming") data = { data: [] };
+      else if (url.pathname === "/api/analytics/shortage-frequency") data = { data: [{ componentId: "component-1", componentCode: "METER", shortageCount: 2, totalQtyShort: 3, avgQtyShort: 1.5 }], total: 1 };
       else if (url.pathname === "/api/stocks/transfer") data = { data: {} };
       else if (url.pathname === "/api/stocks") data = { data: [stock()], total: 1, page: 1, limit: 20 };
       else if (url.pathname === "/api/quotas/suggestions") data = { department: departments()[0], peakGroups: 2, from: "2026-09-01", to: "2026-09-30", suggestions: [{ componentId: "component-1", maxQtyPerGroup: 1, suggestedQty: 2 }] };
@@ -418,7 +491,9 @@ const browserRun = `
         threshold: "50.00",
       };
       else if (url.pathname === "/api/requisitions" && url.searchParams.get("status") === "RETURNED") data = { data: [], total: 0, page: 1, limit: 20 };
-      else if (url.pathname === "/api/requisitions") data = { data: [requisition()], total: 1, page: 1, limit: 10 };
+      else if (url.pathname === "/api/requisitions") data = currentUserId === "student-2"
+        ? { data: [], total: 0, page: 1, limit: 10 }
+        : { data: [requisition()], total: 1, page: 1, limit: 10 };
       else if (url.pathname === "/api/requisitions/request-1/issue-preview") data = {
         data: { requisitionId: "request-1", status: "READY", lines: [{ lineId: "line-1",
           componentId: "component-1", componentCode: "METER", componentName: "Multimeter",
@@ -471,7 +546,7 @@ const browserRun = `
     await waitForHealth(webPort);
 
     const chrome = spawn(browser, [
-      "--headless=new", "--no-sandbox", "--disable-gpu", "--no-first-run", "--window-size=390,844",
+      "--headless=new", "--no-sandbox", "--disable-gpu", "--no-first-run", `--window-size=${process.env.BROWSER_VIEWPORT ?? "390,844"}`,
       "--disable-background-networking", `--user-data-dir=${profile}`,
       "--virtual-time-budget=60000", "--dump-dom", `http://127.0.0.1:${webPort}/login`,
     ], { windowsHide: true });
@@ -503,6 +578,20 @@ const browserRun = `
       event.body.poNumber === "PO-QA-001" && event.body.qtyReceived === 2));
     assert(events.some((event) => event.method === "POST" && event.path === "/api/purchase-requests/purchase-rung-2/decide" &&
       event.body.action === "APPROVE" && event.body.remarks === "Endorsed by department"));
+    for (const [role, expectedPath] of [
+      ["SYSTEM_ADMIN", "/api/audit-logs"], ["LAB_ASSISTANT", "/api/labs"],
+      ["CENTRAL_STORE_OFFICER", "/api/components"], ["STUDENT", "/api/penalties/block-status"],
+      ["DEPT_STORE_HEAD", "/api/borrow-requests/incoming"], ["INSTRUCTOR", "/api/sections"],
+      ["OFFICE_ADMIN", "/api/analytics/shortage-frequency"],
+    ]) assert(events.some((event) => event.role === role && event.path === expectedPath), `${role} dashboard did not load ${expectedPath}`);
+    for (const event of events) {
+      if (event.role === "STUDENT" && ["/api/users", "/api/stocks", "/api/purchase-requests/queue", "/api/sessions"].includes(event.path)) {
+        throw new Error(`Student dashboard requested forbidden API ${event.path}`);
+      }
+      if (event.role === "SYSTEM_ADMIN" && ["/api/requisitions", "/api/purchase-requests/queue", "/api/stocks"].includes(event.path)) {
+        throw new Error(`System dashboard requested operational API ${event.path}`);
+      }
+    }
   } finally {
     if (web) {
       web.kill();
