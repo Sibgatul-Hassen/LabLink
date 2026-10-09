@@ -48,3 +48,33 @@ GitHub Actions runs backend tests against PostgreSQL, then builds the API and fr
 QR scanning and equipment booking were confirmed out of scope.
 
 The database schema migration for substitute allocation must be applied before using that feature. Keep credentials out of Git; only .env.example files belong in commits.
+
+## GitHub Pages
+
+The public frontend is deployed from `main` by
+[`.github/workflows/pages.yml`](.github/workflows/pages.yml). After enabling
+GitHub Pages with **GitHub Actions** as the source, the site is available at:
+
+`https://sibgatul-hassen.github.io/LabLink/`
+
+The Pages deployment is a static frontend. Login and protected API features
+require a separately hosted backend. Set the repository variable
+`VITE_API_URL` under **Settings → Secrets and variables → Actions → Variables**
+to the public API URL before deploying. If it is unset, the public landing
+page still builds and is usable, but API requests cannot succeed.
+
+## License and attribution
+
+LabLink is **All Rights Reserved**. The source code, design, documentation,
+assets, and other original material in this repository may not be copied,
+rehosted, modified, redistributed, or used to create the same or a derivative
+project in another GitHub repository without prior written permission from the
+copyright holder.
+
+Any approved reuse must visibly credit the LabLink project and link to this
+repository:
+https://github.com/Sibgatul-Hassen/LabLink
+
+See [`LICENSE`](LICENSE) for the complete terms. Contributions submitted to
+this repository remain subject to these terms unless a separate written
+agreement says otherwise.
