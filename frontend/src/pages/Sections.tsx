@@ -1,4 +1,5 @@
 import axios from "axios";
+import { useAppDialog } from "../components/ui/dialog";
 import { type FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -44,6 +45,7 @@ function getErrorMessage(error: unknown): string {
 }
 
 export default function Sections() {
+  const { confirm } = useAppDialog();
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
 
@@ -60,7 +62,7 @@ export default function Sections() {
   const [deleteError, setDeleteError] = useState("");
 
   const limit = 10;
-  const canManage = user?.role === "SYSTEM_ADMIN";
+  const canManage = user?.role === "DEPT_STORE_HEAD";
 
   const coursesQuery = useQuery({
     queryKey: ["courses", "section-options"],
@@ -211,8 +213,8 @@ export default function Sections() {
     saveMutation.mutate(payload);
   }
 
-  function handleDelete(section: Section) {
-    const confirmed = window.confirm(
+  async function handleDelete(section: Section) {
+    const confirmed = await confirm(
       `Delete section "${section.course.code} - ${section.name} - ${section.semester}"?`,
     );
 
@@ -267,7 +269,7 @@ export default function Sections() {
                 setPage(1);
               }}
               placeholder="Course code, title, section or semester"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
             />
           </div>
 
@@ -286,7 +288,7 @@ export default function Sections() {
                 setCourseId(event.target.value);
                 setPage(1);
               }}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
             >
               <option value="">All Courses</option>
 
@@ -315,7 +317,7 @@ export default function Sections() {
                 setPage(1);
               }}
               placeholder="Example: Spring 2026"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
             />
           </div>
         </div>
@@ -546,7 +548,7 @@ export default function Sections() {
                       courseId: event.target.value,
                     }))
                   }
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                 >
                   <option value="">Select a course</option>
 
@@ -578,7 +580,7 @@ export default function Sections() {
                       }))
                     }
                     placeholder="Example: A"
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                   />
                 </div>
 
@@ -603,7 +605,7 @@ export default function Sections() {
                       }))
                     }
                     placeholder="Example: 40"
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                   />
                 </div>
               </div>
@@ -627,7 +629,7 @@ export default function Sections() {
                     }))
                   }
                   placeholder="Example: Spring 2026"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                 />
               </div>
 
@@ -648,7 +650,7 @@ export default function Sections() {
                       instructorId: event.target.value,
                     }))
                   }
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                 >
                   <option value="">Not assigned</option>
 
@@ -683,7 +685,7 @@ export default function Sections() {
                       labAssistantId: event.target.value,
                     }))
                   }
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                 >
                   <option value="">Not assigned</option>
 

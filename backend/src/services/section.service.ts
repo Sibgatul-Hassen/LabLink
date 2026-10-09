@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 
 import { prisma } from "../lib/prisma";
+import { AcademicActor, sectionReadScope } from "./academic-read-scope";
 import {
   CreateSectionRequest,
   ListSectionsQuery,
@@ -55,11 +56,13 @@ export type SectionAssignee = Prisma.UserGetPayload<{
 export class SectionService {
   static async listAssignees(
     role: "INSTRUCTOR" | "LAB_ASSISTANT",
+    departmentId?: string | null,
   ): Promise<SectionAssignee[]> {
     return prisma.user.findMany({
       where: {
         role,
         isActive: true,
+        ...(departmentId !== undefined ? { departmentId: departmentId ?? "__none__" } : {}),
       },
       select: {
         id: true,
@@ -202,6 +205,7 @@ export class SectionService {
 
   static async listSections(
     query: ListSectionsQuery,
+    actor?: AcademicActor,
   ): Promise<PaginatedSectionsResponse> {
     const {
       search,
@@ -214,7 +218,7 @@ export class SectionService {
     const page = Number(query.page) || 1;
     const limit = Number(query.limit) || 20;
 
-    const where: Prisma.SectionWhereInput = {};
+    const where: Prisma.SectionWhereInput = actor ? { AND: [sectionReadScope(actor)] } : {};
 
     if (search) {
       where.OR = [
@@ -324,7 +328,7 @@ export class SectionService {
     };
   }
 
-  static async getSectionById(id: string): Promise<SectionWithRelations> {
+  static async getSectionById(id: string, actor?: AcademicActor): Promise<SectionWithRelations> {
     const section = await prisma.section.findUnique({
       where: { id },
       include: {
@@ -359,6 +363,7 @@ export class SectionService {
       throw new Error("Section not found");
     }
 
+    if (actor && !(await prisma.section.count({ where: { id, AND: [sectionReadScope(actor)] } }))) throw new Error("Forbidden");
     return section;
   }
 

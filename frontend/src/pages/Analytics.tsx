@@ -388,7 +388,7 @@ function ShortageFrequencyView() {
               id="limit-select"
               value={limit}
               onChange={(e) => setLimit(Number(e.target.value))}
-              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
             >
               {LIMIT_OPTIONS.map((n) => (
                 <option key={n} value={n}>

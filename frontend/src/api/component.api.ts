@@ -33,6 +33,27 @@ export async function getComponents(
   return response.data;
 }
 
+export async function downloadComponentsCsv(
+  params?: GetComponentsParams,
+): Promise<void> {
+  const response = await apiClient.get(
+    "/api/components/export/csv",
+    {
+      params,
+      responseType: "blob",
+    },
+  );
+
+  const url = window.URL.createObjectURL(new Blob([response.data]));
+  const link = document.createElement("a");
+  link.href = url;
+  link.setAttribute("download", "components.csv");
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}
+
 export async function getComponent(id: string): Promise<Component> {
   const response = await apiClient.get<ComponentResponse>(
     `/api/components/${id}`,

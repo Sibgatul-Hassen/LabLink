@@ -1,6 +1,6 @@
 import { prisma } from "../lib/prisma";
 import { CreateComponentRequest, UpdateComponentRequest, ListComponentsQuery } from "../schemas/component.schema";
-import { Component } from "@prisma/client";
+import { Component, Prisma } from "@prisma/client";
 
 export interface ComponentWithStock extends Component {
   stock?: { onHand: number; spareQty: number; reorderPoint: number } | null;
@@ -145,4 +145,68 @@ export class ComponentService {
       data: { isActive: false },
     });
   }
+
+  static async exportCsv(query: ListComponentsQuery): Promise<string> {
+    const where: Prisma.ComponentWhereInput = { isActive: true };
+
+    if (query.search) {
+      where.OR = [
+        { code: { contains: query.search, mode: "insensitive" } },
+        { name: { contains: query.search, mode: "insensitive" } },
+      ];
+    }
+
+    if (query.category) {
+      where.category = { equals: query.category, mode: "insensitive" };
+    }
+
+    const components = await prisma.component.findMany({
+      where,
+      include: { stock: true },
+      orderBy: { code: "asc" },
+    });
+
+    const headers = [
+      "Code",
+      "Name",
+      "Category",
+      "Size Class",
+      "Unit",
+      "Unit Cost",
+      "Returnable",
+      "On Hand",
+      "Spare Qty",
+      "Reorder Point",
+    ];
+
+    const escapeCsv = (str: unknown) => {
+      if (str === null || str === undefined) return "";
+      const s = String(str);
+      if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+        return `"${s.replace(/"/g, '""')}"`;
+      }
+      return s;
+    };
+
+    const rows = components.map((c) => [
+      c.code,
+      c.name,
+      c.category,
+      c.sizeClass,
+      c.unit,
+      c.unitCost,
+      c.isReturnable ? "Yes" : "No",
+      c.stock?.onHand ?? 0,
+      c.stock?.spareQty ?? 0,
+      c.stock?.reorderPoint ?? 0,
+    ]);
+
+    const csvContent = [
+      headers.map(escapeCsv).join(","),
+      ...rows.map((row) => row.map(escapeCsv).join(",")),
+    ].join("\n");
+
+    return csvContent;
+  }
 }
+

@@ -1,4 +1,5 @@
 import axios from "axios";
+import { useAppDialog } from "../components/ui/dialog";
 import { type FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -41,6 +42,7 @@ function getErrorMessage(error: unknown): string {
 }
 
 export default function Experiments() {
+  const { confirm } = useAppDialog();
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
 
@@ -65,7 +67,7 @@ export default function Experiments() {
   const [deleteError, setDeleteError] = useState("");
 
   const limit = 10;
-  const canManage = user?.role === "SYSTEM_ADMIN";
+  const canManage = user?.role === "DEPT_STORE_HEAD";
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["experiments", { search, courseFilter, page, limit }],
@@ -250,8 +252,8 @@ export default function Experiments() {
     });
   }
 
-  function handleDelete(experiment: Experiment) {
-    const confirmed = window.confirm(
+  async function handleDelete(experiment: Experiment) {
+    const confirmed = await confirm(
       `Delete experiment ${experiment.number} — "${experiment.title}"? Its item list will be removed too.`,
     );
 
@@ -341,7 +343,7 @@ export default function Experiments() {
                 setPage(1);
               }}
               placeholder="Search by title or course code"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
             />
           </div>
 
@@ -360,7 +362,7 @@ export default function Experiments() {
                 setCourseFilter(event.target.value);
                 setPage(1);
               }}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
             >
               <option value="">All courses</option>
               {courses.map((course) => (
@@ -530,7 +532,7 @@ export default function Experiments() {
                                               [item.id]: event.target.value,
                                             }))
                                           }
-                                          className="w-24 rounded-lg border border-slate-300 px-3 py-1.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                                          className="w-24 rounded-lg border border-slate-300 px-3 py-1.5 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                                         />
 
                                         <span className="text-xs text-slate-500">
@@ -599,7 +601,7 @@ export default function Experiments() {
                                   onChange={(event) =>
                                     setNewItemComponentId(event.target.value)
                                   }
-                                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                                 >
                                   <option value="">Select a component</option>
                                   {components.map((component) => (
@@ -629,7 +631,7 @@ export default function Experiments() {
                                   onChange={(event) =>
                                     setNewItemQty(event.target.value)
                                   }
-                                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                                 />
                               </div>
 
@@ -739,7 +741,7 @@ export default function Experiments() {
                       courseId: event.target.value,
                     }))
                   }
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                 >
                   <option value="">Select a course</option>
                   {courses.map((course) => (
@@ -770,7 +772,7 @@ export default function Experiments() {
                     }))
                   }
                   placeholder="Example: 4"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                 />
               </div>
 
@@ -793,7 +795,7 @@ export default function Experiments() {
                     }))
                   }
                   placeholder="Example: PWM and Servo Control"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                 />
               </div>
 

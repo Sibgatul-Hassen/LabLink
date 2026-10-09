@@ -2,7 +2,7 @@ import { Response, NextFunction } from "express";
 import { AuthService } from "../services/auth.service";
 import { AuthenticatedRequest } from "../types";
 
-export function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction): void {
+export async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -14,10 +14,13 @@ export function requireAuth(req: AuthenticatedRequest, res: Response, next: Next
 
   try {
     const payload = AuthService.verifyToken(token);
+    // Resolve current account state on every request so deactivation, role
+    // changes, and department transfers take effect without waiting 8 hours.
+    const user = await AuthService.getUserById(payload.sub);
     req.user = {
-      id: payload.sub,
-      role: payload.role,
-      departmentId: payload.departmentId,
+      id: user.id,
+      role: user.role,
+      departmentId: user.departmentId,
     };
     next();
   } catch (error) {

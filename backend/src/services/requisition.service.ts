@@ -3,6 +3,7 @@ import {
   AllocationSource,
   Prisma,
   RequisitionLine,
+  RequisitionType,
   Role,
 } from "@prisma/client";
 
@@ -13,10 +14,12 @@ import {
   AvailabilityWindow,
 } from "./availability.service";
 import { BorrowService } from "./borrow.service";
+import { PenaltyService } from "./penalty.service";
 import { PurchaseService } from "./purchase.service";
 import {
   CreateRequisitionLineRequest,
   CreateRequisitionRequest,
+  LiveOrderRequest,
   ListRequisitionsQuery,
   ReturnRequisitionRequest,
   UpdateRequisitionLineRequest,
@@ -24,19 +27,9 @@ import {
 } from "../schemas/requisition.schema";
 
 /**
- * Stage 4 resolves a requisition in tiers, each backed by a real RequisitionLine
- * column and a real AllocationSource value — except a few the task briefs named
- * that don't exist on this schema, so here is the mapping actually implemented:
- *
- *   - RequisitionStatus has no PARTIALLY_READY. A requisition that is submitted
- *     but not fully covered lands on SUBMITTED (the enum's own "awaiting
- *     further resolution" state) instead.
- *   - AllocationSource has no OFFICE. The office department's stock *is* the
- *     schema's "spare" pool (Stock.spareQty's own comment: "held outside every
- *     department quota"), so tier 2 allocations use AllocationSource.SPARE,
- *     with sourceDeptId set to the office department actually drawn from.
- *   - RequisitionLine has no qtyFromBorrow column — the real field is
- *     qtyBorrowed. Tier 3 writes there.
+ * Resolution uses own quota, approved substitutes, central spares, another
+ * department's unused quota, and finally a purchase request. A pending
+ * purchase leaves qtyShort positive until stock is received.
  */
 export type ResolutionBreakdownLine = {
   lineId: string;
@@ -45,12 +38,18 @@ export type ResolutionBreakdownLine = {
   componentName: string;
   qtyNeeded: number;
   qtyFromOwn: number;
+  qtyFromSubstitute: number;
+  substitutes: {
+    componentId: string;
+    componentCode: string;
+    componentName: string;
+    physicalQty: number;
+    ratio: number;
+    equivalentQty: number;
+  }[];
   qtyFromOffice: number;
   qtyFromBorrow: number;
-  // RequisitionLine has no "to purchase" column, even now that tier 4 exists
-  // (task 5.9) — qtyShort already means exactly this ("what tiers 1-3 could
-  // not source"), and tier 4 acts on that same number rather than needing a
-  // second one. The two fields below are intentionally identical.
+  // qtyShort is the unresolved amount; personal requests do not auto-purchase.
   qtyToPurchase: number;
   qtyShort: number;
 };
@@ -69,6 +68,8 @@ export type IssuePreviewLine = {
   componentName: string;
   qtyNeeded: number;
   currentStock: number;
+  isSubstitute: boolean;
+  originalComponentCode?: string;
 };
 
 export interface IssuePreview {
@@ -84,12 +85,51 @@ export type ReturnPreviewLine = {
   componentCode: string;
   componentName: string;
   qtyIssued: number;
+  isSubstitute: boolean;
+  originalComponentCode?: string;
 };
 
 export interface ReturnPreview {
   requisitionId: string;
   status: string;
   lines: ReturnPreviewLine[];
+}
+
+type ReturnCounts = {
+  goodQty: number;
+  damagedQty: number;
+  lostQty: number;
+  usedUpQty: number;
+};
+
+/** Split a physical component's return across its direct line and substitutions. */
+export function splitReturnCounts(counts: ReturnCounts, capacities: number[]): ReturnCounts[] {
+  const remaining: ReturnCounts = {
+    goodQty: counts.goodQty,
+    damagedQty: counts.damagedQty,
+    lostQty: counts.lostQty,
+    usedUpQty: counts.usedUpQty,
+  };
+  const parts = capacities.map((capacity) => {
+    let space = capacity;
+    const goodQty = Math.min(space, remaining.goodQty);
+    space -= goodQty;
+    remaining.goodQty -= goodQty;
+    const damagedQty = Math.min(space, remaining.damagedQty);
+    space -= damagedQty;
+    remaining.damagedQty -= damagedQty;
+    const lostQty = Math.min(space, remaining.lostQty);
+    space -= lostQty;
+    remaining.lostQty -= lostQty;
+    const usedUpQty = Math.min(space, remaining.usedUpQty);
+    space -= usedUpQty;
+    remaining.usedUpQty -= usedUpQty;
+    return { goodQty, damagedQty, lostQty, usedUpQty };
+  });
+  if (Object.values(remaining).some((qty) => qty !== 0)) {
+    throw new Error("Return quantities exceed issued units");
+  }
+  return parts;
 }
 
 /** Roles that see every department's requisitions. */
@@ -141,6 +181,13 @@ const requisitionInclude = {
           sizeClass: true,
         },
       },
+      allocations: {
+        include: {
+          substituteComponent: {
+            select: { id: true, code: true, name: true },
+          },
+        },
+      },
     },
     orderBy: { component: { code: "asc" } },
   },
@@ -176,19 +223,20 @@ export class RequisitionService {
       return {};
     }
 
-    if (actor.role === "STUDENT") {
-      return { requestedById: actor.id };
-    }
-
-    // A scoped role with no department can see nothing, rather than everything.
+    if (actor.role === "STUDENT") return { requestedById: actor.id, type: "PERSONAL" };
+    if (actor.role === "INSTRUCTOR") return {
+      type: "CLASS", classSession: { routineSlot: { section: { instructorId: actor.id } } },
+    };
+    if (actor.role === "LAB_ASSISTANT") return { OR: [
+      { type: "MAINTENANCE", requestedById: actor.id },
+      { type: "CLASS", classSession: { routineSlot: { OR: [
+        { section: { labAssistantId: actor.id } }, { lab: { labAssistantId: actor.id } },
+      ] } } },
+    ] };
     return { departmentId: actor.departmentId ?? "__none__" };
   }
 
   private static canRaise(type: string, role: Role): boolean {
-    if (role === "SYSTEM_ADMIN") {
-      return true;
-    }
-
     if (type === "PERSONAL") {
       return role === "STUDENT";
     }
@@ -221,12 +269,125 @@ export class RequisitionService {
     }
   }
 
+  /** An instructor replaces an unsubmitted class draft with the items actually needed. */
+  static async orderLiveForSession(
+    sessionId: string,
+    data: LiveOrderRequest,
+    actor: RequisitionActor,
+  ): Promise<RequisitionWithRelations> {
+    if (actor.role !== "INSTRUCTOR") {
+      throw new Error("Only instructors can place a live class order");
+    }
+
+    const uniqueIds = new Set(data.lines.map((line) => line.componentId));
+    if (uniqueIds.size !== data.lines.length) {
+      throw new Error("This component is already on the requisition");
+    }
+
+    let requisitionId: string;
+    try {
+      requisitionId = await prisma.$transaction(async (tx) => {
+        const session = await tx.classSession.findUnique({
+          where: { id: sessionId },
+          include: {
+            requisition: { select: { id: true, status: true } },
+            routineSlot: {
+              select: {
+                section: {
+                  select: {
+                    instructorId: true,
+                    course: { select: { departmentId: true } },
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        if (!session) throw new Error("Class session not found");
+        if (
+          session.status === "CANCELLED" ||
+          session.status === "COMPLETED" ||
+          session.endsAt <= new Date()
+        ) {
+          throw new Error("This class session is no longer open for orders");
+        }
+
+        const section = session.routineSlot.section;
+        if (
+          actor.role === "INSTRUCTOR" &&
+          (section.instructorId !== actor.id ||
+            actor.departmentId !== section.course.departmentId)
+        ) {
+          throw new Error("You can only order for your own classes");
+        }
+
+        if (session.requisition && session.requisition.status !== "DRAFT") {
+          throw new Error("Only an unsubmitted class draft can be replaced");
+        }
+
+        const activeComponents = await tx.component.count({
+          where: { id: { in: [...uniqueIds] }, isActive: true },
+        });
+        if (activeComponents !== uniqueIds.size) {
+          throw new Error("Component not found");
+        }
+
+        const lines = data.lines.map((line) => ({
+          componentId: line.componentId,
+          qtyNeeded: line.qtyNeeded,
+        }));
+
+        if (session.requisition) {
+          const updated = await tx.requisition.update({
+            where: { id: session.requisition.id },
+            data: {
+              origin: "INSTRUCTOR_LIVE",
+              requestedById: actor.id,
+              lines: { deleteMany: {}, create: lines },
+            },
+            select: { id: true },
+          });
+          return updated.id;
+        }
+
+        const created = await tx.requisition.create({
+          data: {
+            type: "CLASS",
+            origin: "INSTRUCTOR_LIVE",
+            classSessionId: sessionId,
+            requestedById: actor.id,
+            departmentId: section.course.departmentId,
+            neededFrom: session.startsAt,
+            neededTo: session.endsAt,
+            lines: { create: lines },
+          },
+          select: { id: true },
+        });
+        return created.id;
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        (error.code === "P2002" || error.code === "P2034")
+      ) {
+        throw new Error("This class order changed concurrently - please try again");
+      }
+      throw error;
+    }
+
+    return this.submitRequisition(requisitionId, actor);
+  }
+
   static async createRequisition(
     data: CreateRequisitionRequest,
     actor: RequisitionActor,
   ): Promise<RequisitionWithRelations> {
     if (!this.canRaise(data.type, actor.role)) {
       throw new Error("You cannot raise this type of requisition");
+    }
+    if (data.type === "PERSONAL") {
+      await PenaltyService.assertPersonalAllowed(actor.id);
     }
 
     let departmentId: string;
@@ -241,8 +402,9 @@ export class RequisitionService {
           routineSlot: {
             select: {
               section: {
-                select: { course: { select: { departmentId: true } } },
+                select: { labAssistantId: true, course: { select: { departmentId: true } } },
               },
+              lab: { select: { labAssistantId: true } },
             },
           },
         },
@@ -259,10 +421,9 @@ export class RequisitionService {
       departmentId = session.routineSlot.section.course.departmentId;
 
       // A lab assistant may only requisition for their own department.
-      if (
-        actor.role !== "SYSTEM_ADMIN" &&
-        actor.departmentId !== departmentId
-      ) {
+      if (actor.departmentId !== departmentId ||
+          (session.routineSlot.section.labAssistantId !== actor.id &&
+           session.routineSlot.lab.labAssistantId !== actor.id)) {
         throw new Error(
           "You can only raise requisitions for your own department",
         );
@@ -364,6 +525,9 @@ export class RequisitionService {
     });
 
     if (!requisition) {
+      if (await prisma.requisition.count({ where: { id } })) {
+        throw new Error("Requisition is outside your scope");
+      }
       throw new Error("Requisition not found");
     }
 
@@ -377,10 +541,7 @@ export class RequisitionService {
   ): Promise<RequisitionWithRelations> {
     const requisition = await this.getRequisitionById(id, actor);
 
-    if (
-      actor.role !== "SYSTEM_ADMIN" &&
-      requisition.requestedById !== actor.id
-    ) {
+    if (requisition.requestedById !== actor.id) {
       throw new Error("You can only change your own requisitions");
     }
 
@@ -430,6 +591,56 @@ export class RequisitionService {
     // Hard delete, drafts only. Anything past DRAFT is cancelled instead —
     // that is task 3.14, and RequisitionStatus already has CANCELLED for it.
     await prisma.requisition.delete({ where: { id } });
+  }
+
+  /** Cancel an unissued request and release all reservations atomically. */
+  static async cancelRequisition(
+    id: string,
+    actor: RequisitionActor,
+  ): Promise<RequisitionWithRelations> {
+    const requisition = await this.getRequisitionById(id, actor);
+    if (requisition.requestedById !== actor.id) {
+      throw new Error("You can only change your own requisitions");
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const current = await tx.requisition.findUnique({
+        where: { id },
+        include: {
+          borrowRequests: { select: { status: true } },
+          purchaseRequests: { select: { status: true } },
+        },
+      });
+      if (!current || !["SUBMITTED", "READY", "AWAITING_BORROW", "AWAITING_PURCHASE"].includes(current.status)) {
+        throw new Error("Only an unissued requisition can be cancelled");
+      }
+      if (current.borrowRequests.some((borrow) =>
+        ["HANDED_OVER", "RETURNED"].includes(borrow.status)
+      ) || current.purchaseRequests.some((purchase) =>
+        ["APPROVED", "RECEIVED"].includes(purchase.status)
+      )) {
+        throw new Error("This requisition has completed borrow or purchase activity");
+      }
+
+      await tx.allocation.updateMany({
+        where: { requisitionLine: { requisitionId: id }, status: "HELD" },
+        data: { status: "RELEASED" },
+      });
+      await tx.borrowRequest.updateMany({
+        where: { requisitionId: id, status: { in: ["REQUESTED", "APPROVED"] } },
+        data: { status: "CANCELLED" },
+      });
+      await tx.purchaseRequest.updateMany({
+        where: { requisitionId: id, status: "PENDING" },
+        data: { status: "CANCELLED" },
+      });
+      await tx.requisition.update({
+        where: { id },
+        data: { status: "CANCELLED" },
+      });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+    return this.getRequisitionById(id, actor);
   }
 
   static async addLine(
@@ -520,14 +731,55 @@ export class RequisitionService {
     actor: RequisitionActor,
   ): Promise<IssuePreview> {
     const requisition = await this.getRequisitionById(id, actor);
+    const lines: IssuePreviewLine[] = [];
 
+    for (const line of requisition.lines) {
+      const originalQty = line.qtyNeeded - line.qtySubstitute;
+      if (originalQty > 0) {
+        lines.push({
+          lineId: line.id,
+          componentId: line.componentId,
+          componentCode: line.component.code,
+          componentName: line.component.name,
+          qtyNeeded: originalQty,
+          currentStock: 0,
+          isSubstitute: false,
+        });
+      }
+
+      for (const allocation of line.allocations) {
+        if (
+          allocation.source !== "SUBSTITUTE" ||
+          allocation.status !== "HELD" ||
+          !allocation.substituteComponent
+        ) continue;
+        lines.push({
+          lineId: line.id,
+          componentId: allocation.substituteComponent.id,
+          componentCode: allocation.substituteComponent.code,
+          componentName: allocation.substituteComponent.name,
+          qtyNeeded: allocation.qty,
+          currentStock: 0,
+          isSubstitute: true,
+          originalComponentCode: line.component.code,
+        });
+      }
+    }
+
+    const byComponent = new Map<string, IssuePreviewLine>();
+    for (const line of lines) {
+      const existing = byComponent.get(line.componentId);
+      if (existing) {
+        existing.qtyNeeded += line.qtyNeeded;
+      } else {
+        byComponent.set(line.componentId, { ...line });
+      }
+    }
+    const physicalLines = [...byComponent.values()];
     const stocks = await prisma.stock.findMany({
-      where: {
-        componentId: { in: requisition.lines.map((line) => line.componentId) },
-      },
+      where: { componentId: { in: physicalLines.map((line) => line.componentId) } },
       select: { componentId: true, onHand: true },
     });
-
     const stockByComponent = new Map(
       stocks.map((stock) => [stock.componentId, stock.onHand]),
     );
@@ -535,52 +787,70 @@ export class RequisitionService {
     return {
       requisitionId: requisition.id,
       status: requisition.status,
-      lines: requisition.lines.map((line) => ({
-        lineId: line.id,
-        componentId: line.componentId,
-        componentCode: line.component.code,
-        componentName: line.component.name,
-        qtyNeeded: line.qtyNeeded,
+      lines: physicalLines.map((line) => ({
+        ...line,
         currentStock: stockByComponent.get(line.componentId) ?? 0,
       })),
     };
   }
 
-  /**
-   * Task 6.3. A per-line breakdown for the store manager to review before
-   * recording a return — component identity alongside qtyIssued, the most
-   * that line can legitimately be returned (returnRequisition itself
-   * enforces this: every item's good+damaged+lost+usedUp must sum to
-   * exactly its line's qtyIssued). Lines that were never issued are left
-   * out — there is nothing to return for them. Read-only, like
-   * getIssuePreview.
-   */
   static async getReturnPreview(
     id: string,
     actor: RequisitionActor,
   ): Promise<ReturnPreview> {
     const requisition = await this.getRequisitionById(id, actor);
+    const lines: ReturnPreviewLine[] = [];
 
-    return {
-      requisitionId: requisition.id,
-      status: requisition.status,
-      lines: requisition.lines
-        .filter((line) => line.qtyIssued > 0)
-        .map((line) => ({
+    for (const line of requisition.lines) {
+      if (line.qtyIssued > 0) {
+        lines.push({
           lineId: line.id,
           componentId: line.componentId,
           componentCode: line.component.code,
           componentName: line.component.name,
           qtyIssued: line.qtyIssued,
-        })),
+          isSubstitute: false,
+        });
+      }
+
+      for (const allocation of line.allocations) {
+        if (
+          allocation.source !== "SUBSTITUTE" ||
+          allocation.status !== "ISSUED" ||
+          !allocation.substituteComponent
+        ) continue;
+        lines.push({
+          lineId: allocation.id,
+          componentId: allocation.substituteComponent.id,
+          componentCode: allocation.substituteComponent.code,
+          componentName: allocation.substituteComponent.name,
+          qtyIssued: allocation.qty,
+          isSubstitute: true,
+          originalComponentCode: line.component.code,
+        });
+      }
+    }
+
+    const byComponent = new Map<string, ReturnPreviewLine>();
+    for (const line of lines) {
+      const existing = byComponent.get(line.componentId);
+      if (existing) {
+        existing.qtyIssued += line.qtyIssued;
+      } else {
+        byComponent.set(line.componentId, { ...line });
+      }
+    }
+    return {
+      requisitionId: requisition.id,
+      status: requisition.status,
+      lines: [...byComponent.values()],
     };
   }
 
   /**
-   * Issues a READY requisition: every line is handed out in full, deducted
-   * from stock.onHand except for the portion the resolver already marked as
-   * coming from the spare pool (line.qtySpare), which is deducted from
-   * stock.spareQty instead.
+   * Issues the physical components selected by the resolver. A substitute
+   * allocation stores physical units, while qtySubstitute stores how many
+   * requested units those physical units replace.
    */
   static async issueRequisition(
     id: string,
@@ -593,57 +863,87 @@ export class RequisitionService {
     }
 
     await prisma.$transaction(async (tx) => {
-      for (const line of requisition.lines) {
-        const stock = await tx.stock.findUnique({
-          where: { componentId: line.componentId },
+      async function issuePhysical(
+        componentId: string,
+        code: string,
+        qty: number,
+        sparePortion: number,
+        note?: string,
+      ): Promise<void> {
+        if (qty === 0) return;
+        const stock = await tx.stock.findUnique({ where: { componentId } });
+        const newOnHand = (stock?.onHand ?? 0) - qty;
+        const newSpareQty = (stock?.spareQty ?? 0) - sparePortion;
+        if (newOnHand < 0 || newSpareQty < 0 || newOnHand < newSpareQty) {
+          throw new Error("Insufficient stock for " + code);
+        }
+        await tx.stock.update({
+          where: { componentId },
+          data: { onHand: newOnHand, spareQty: newSpareQty },
         });
-
-        const currentOnHand = stock?.onHand ?? 0;
-        const currentSpareQty = stock?.spareQty ?? 0;
-
-        const sparePortion = Math.min(line.qtySpare, line.qtyNeeded);
-        const onHandPortion = line.qtyNeeded - sparePortion;
-
-        const newOnHand = currentOnHand - onHandPortion;
-        const newSpareQty = currentSpareQty - sparePortion;
-
-        if (newOnHand < 0 || newSpareQty < 0) {
-          throw new Error(`Insufficient stock for ${line.component.code}`);
-        }
-
-        if (stock) {
-          await tx.stock.update({
-            where: { componentId: line.componentId },
-            data: { onHand: newOnHand, spareQty: newSpareQty },
-          });
-        } else {
-          await tx.stock.create({
-            data: {
-              componentId: line.componentId,
-              onHand: newOnHand,
-              spareQty: 0,
-              reorderPoint: 0,
-            },
-          });
-        }
-
         await tx.stockMovement.create({
           data: {
-            componentId: line.componentId,
-            qty: -line.qtyNeeded,
+            componentId,
+            qty: -qty,
             type: "ISSUE",
             refType: "REQUISITION",
             refId: id,
             performedById: actor.id,
+            note,
           },
-        });
-
-        await tx.requisitionLine.update({
-          where: { id: line.id },
-          data: { qtyIssued: line.qtyNeeded },
         });
       }
 
+      for (const line of requisition.lines) {
+        const substituteAllocations = line.allocations.filter(
+          (allocation) =>
+            allocation.source === "SUBSTITUTE" &&
+            allocation.status === "HELD" &&
+            allocation.substituteComponentId !== null &&
+            allocation.substituteRatio !== null,
+        );
+        const equivalent = substituteAllocations.reduce(
+          (sum, allocation) => sum + allocation.qty / (allocation.substituteRatio as number),
+          0,
+        );
+        if (equivalent !== line.qtySubstitute) {
+          throw new Error("Substitute allocation does not match the requisition");
+        }
+
+        const originalQty = line.qtyNeeded - line.qtySubstitute;
+        if (originalQty < 0) {
+          throw new Error("Substitute allocation does not match the requisition");
+        }
+        await issuePhysical(
+          line.componentId,
+          line.component.code,
+          originalQty,
+          line.qtySpare,
+        );
+
+        for (const allocation of substituteAllocations) {
+          await issuePhysical(
+            allocation.substituteComponentId as string,
+            allocation.substituteComponent!.code,
+            allocation.qty,
+            0,
+            "Substitute for " + line.component.code,
+          );
+        }
+
+        await tx.requisitionLine.update({
+          where: { id: line.id },
+          data: { qtyIssued: originalQty },
+        });
+      }
+
+      await tx.allocation.updateMany({
+        where: {
+          status: "HELD",
+          requisitionLine: { requisitionId: id },
+        },
+        data: { status: "ISSUED" },
+      });
       await tx.requisition.update({
         where: { id },
         data: {
@@ -652,21 +952,12 @@ export class RequisitionService {
           issuedById: actor.id,
         },
       });
-    });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     return this.getRequisitionById(id, actor);
   }
 
-  /**
-   * Records a return against an ISSUED requisition. Good units go back onto
-   * stock.onHand; damaged, lost, and used-up units stay off the shelf but
-   * are still logged as movements for the audit trail.
-   *
-   * Task 5.19: after a line's own mutations, checks whether the component's
-   * shared stock has fallen below its reorder point whenever that line
-   * confirmed a permanent loss (damagedQty/lostQty), auto-raising a
-   * purchase request if so.
-   */
+  /** Records a complete physical return, including replacement components. */
   static async returnRequisition(
     id: string,
     data: ReturnRequisitionRequest,
@@ -681,64 +972,96 @@ export class RequisitionService {
     const linesByComponent = new Map(
       requisition.lines.map((line) => [line.componentId, line]),
     );
+    const substituteAllocations = new Map<
+      string,
+      RequisitionWithRelations["lines"][number]["allocations"]
+    >();
+    const expected = new Map<string, number>();
+
+    for (const line of requisition.lines) {
+      if (line.qtyIssued > 0) {
+        expected.set(line.componentId, (expected.get(line.componentId) ?? 0) + line.qtyIssued);
+      }
+      for (const allocation of line.allocations) {
+        if (
+          allocation.source !== "SUBSTITUTE" ||
+          allocation.status !== "ISSUED" ||
+          !allocation.substituteComponentId
+        ) continue;
+        const componentId = allocation.substituteComponentId;
+        const allocations = substituteAllocations.get(componentId) ?? [];
+        allocations.push(allocation);
+        substituteAllocations.set(componentId, allocations);
+        expected.set(componentId, (expected.get(componentId) ?? 0) + allocation.qty);
+      }
+    }
+
+    const returnedIds = new Set<string>();
+    for (const item of data.items) {
+      if (returnedIds.has(item.componentId)) {
+        throw new Error("Return contains the same component twice");
+      }
+      returnedIds.add(item.componentId);
+      const issuedQty = expected.get(item.componentId);
+      if (issuedQty === undefined) {
+        throw new Error("Component not on this requisition");
+      }
+      const totalReturning =
+        item.goodQty + item.damagedQty + item.lostQty + item.usedUpQty;
+      if (totalReturning !== issuedQty) {
+        throw new Error(
+          "Return quantity mismatch for component " + item.componentId +
+          ": expected " + issuedQty + " (qtyIssued), received " + totalReturning,
+        );
+      }
+    }
+    if (returnedIds.size !== expected.size) {
+      throw new Error("Return must include every issued component");
+    }
 
     await prisma.$transaction(async (tx) => {
-      // Task 5.18. qtyIssued lives on RequisitionLine (set once, to
-      // qtyNeeded, by issueRequisition — never touched again by this
-      // method) rather than in the request body, so the Zod schema alone
-      // can't catch a return whose counts don't add up to what was
-      // actually issued. Checked for every item, before any mutation
-      // below, so one bad line rejects the whole request with nothing
-      // partially applied — not even for the other, otherwise-valid lines.
-      for (const item of data.items) {
-        const line = linesByComponent.get(item.componentId);
-
-        if (!line) {
-          throw new Error("Component not on this requisition");
-        }
-
-        const totalReturning =
-          item.goodQty + item.damagedQty + item.lostQty + item.usedUpQty;
-
-        if (totalReturning !== line.qtyIssued) {
-          throw new Error(
-            `Return quantity mismatch for component ${item.componentId}: ` +
-              `expected ${line.qtyIssued} (qtyIssued), received ${totalReturning}`,
-          );
-        }
+      const returnedAt = new Date();
+      const claimed = await tx.requisition.updateMany({
+        where: { id, status: "ISSUED" },
+        data: {
+          status: "RETURNED",
+          returnedAt,
+          returnedById: actor.id,
+        },
+      });
+      if (claimed.count !== 1) {
+        throw new Error("Requisition must be issued before it can be returned");
       }
 
       for (const item of data.items) {
         const line = linesByComponent.get(item.componentId);
+        const allocations = substituteAllocations.get(item.componentId) ?? [];
+        const parts = splitReturnCounts(item, [line?.qtyIssued ?? 0, ...allocations.map((allocation) => allocation.qty)]);
 
-        if (!line) {
-          throw new Error("Component not on this requisition");
+        if (line && line.qtyIssued > 0) {
+          const counts = parts[0];
+          await tx.requisitionLine.update({
+            where: { id: line.id },
+            data: {
+              qtyReturnedGood: { increment: counts.goodQty },
+              qtyDamaged: { increment: counts.damagedQty },
+              qtyLost: { increment: counts.lostQty },
+              qtyUsedUp: { increment: counts.usedUpQty },
+            },
+          });
         }
-
-        const totalReturning =
-          item.goodQty + item.damagedQty + item.lostQty + item.usedUpQty;
-
-        const alreadyProcessed =
-          line.qtyReturnedGood +
-          line.qtyDamaged +
-          line.qtyLost +
-          line.qtyUsedUp;
-
-        const outstanding = line.qtyIssued - alreadyProcessed;
-
-        if (totalReturning > outstanding) {
-          throw new Error("Return quantity exceeds issued quantity");
+        for (const [index, allocation] of allocations.entries()) {
+          const counts = parts[index + 1];
+          await tx.allocation.update({
+            where: { id: allocation.id },
+            data: {
+              returnedGoodQty: counts.goodQty,
+              damagedQty: counts.damagedQty,
+              lostQty: counts.lostQty,
+              usedUpQty: counts.usedUpQty,
+            },
+          });
         }
-
-        await tx.requisitionLine.update({
-          where: { id: line.id },
-          data: {
-            qtyReturnedGood: { increment: item.goodQty },
-            qtyDamaged: { increment: item.damagedQty },
-            qtyLost: { increment: item.lostQty },
-            qtyUsedUp: { increment: item.usedUpQty },
-          },
-        });
 
         if (item.goodQty > 0) {
           const stock = await tx.stock.findUnique({
@@ -774,6 +1097,15 @@ export class RequisitionService {
         }
 
         if (item.damagedQty > 0) {
+          await tx.damageReport.create({
+            data: {
+              componentId: item.componentId,
+              requisitionId: id,
+              qty: item.damagedQty,
+              reportedById: actor.id,
+              notes: "Recorded during requisition return",
+            },
+          });
           await tx.stockMovement.create({
             data: {
               componentId: item.componentId,
@@ -824,7 +1156,7 @@ export class RequisitionService {
         // so that's the trigger used here, per this component only (see
         // checkReorderPoint's own comment for why not per department).
         // Runs inside this same transaction, on the same `tx`, the same
-        // way tier 4's auto-raised purchase request already does in
+        // way purchase tier's auto-raised request already does in
         // RequisitionService.resolveLine — createPurchaseRequest has no
         // side effect beyond DB writes (no notification, no external
         // call), so there's nothing here that needs to happen only after
@@ -839,15 +1171,9 @@ export class RequisitionService {
           );
         }
       }
-
-      await tx.requisition.update({
-        where: { id },
-        data: {
-          status: "RETURNED",
-          returnedAt: new Date(),
-          returnedById: actor.id,
-        },
-      });
+      if (requisition.type === "PERSONAL") {
+        await PenaltyService.assessReturnedPersonal(tx, requisition, returnedAt, data.items);
+      }
     });
 
     return this.getRequisitionById(id, actor);
@@ -873,10 +1199,11 @@ export class RequisitionService {
         experiment: { include: { items: true } },
         routineSlot: {
           include: {
-            lab: { select: { groupSize: true } },
+            lab: { select: { groupSize: true, labAssistantId: true } },
             section: {
               select: {
                 studentCount: true,
+                labAssistantId: true,
                 course: { select: { departmentId: true } },
               },
             },
@@ -899,7 +1226,9 @@ export class RequisitionService {
 
     const departmentId = session.routineSlot.section.course.departmentId;
 
-    if (actor.role !== "SYSTEM_ADMIN" && actor.departmentId !== departmentId) {
+    if (actor.role !== "LAB_ASSISTANT" || actor.departmentId !== departmentId ||
+        (session.routineSlot.section.labAssistantId !== actor.id &&
+         session.routineSlot.lab.labAssistantId !== actor.id)) {
       throw new Error(
         "You can only raise requisitions for your own department",
       );
@@ -943,6 +1272,7 @@ export class RequisitionService {
     source: AllocationSource,
     departmentId: string | null,
     client: AvailabilityQueryClient = prisma,
+    substitute?: { componentId: string; ratio: number },
   ): Promise<Allocation> {
     return client.allocation.create({
       data: {
@@ -950,6 +1280,8 @@ export class RequisitionService {
         qty,
         source,
         sourceDeptId: departmentId,
+        substituteComponentId: substitute?.componentId,
+        substituteRatio: substitute?.ratio,
         status: "HELD",
       },
     });
@@ -974,84 +1306,150 @@ export class RequisitionService {
   // ─────────────── resolver ───────────────
 
   /**
-   * Tier 1 (own quota), tier 2 (the office department's quota, standing in
-   * for the shared spare pool), tier 3 (borrowing from other academic
-   * departments), then tier 4 (auto-raising a purchase request for whatever
-   * is still short) for a single line. Tier 4 does not reduce the shortfall
-   * the way tiers 1-3 do — a pending purchase is not units in hand — so the
-   * qty this returns (and stores as qtyShort) stays exactly what tier 3 left
-   * it at. That is by design: the caller uses this to decide READY vs.
-   * SUBMITTED, and a line still waiting on a purchase to be approved is not
-   * ready.
+   * Resolve one line in five tiers. A pending purchase does not count as
+   * available stock, so it leaves qtyShort positive and status SUBMITTED.
    */
   private static async resolveLine(
     tx: Prisma.TransactionClient,
     requisitionId: string,
+    requisitionType: RequisitionType,
     departmentId: string,
     window: AvailabilityWindow,
-    officeDept: { id: string } | null,
     line: RequisitionLine,
     raisedById: string,
   ): Promise<number> {
     let remaining = line.qtyNeeded;
     let qtyOwnQuota = 0;
+    let qtySubstitute = 0;
     let qtySpare = 0;
     let qtyBorrowed = 0;
 
-    const ownAvailable = await AvailabilityService.availableToDept(
-      departmentId,
-      line.componentId,
-      window,
-      requisitionId,
-      tx,
-    );
-
-    const fromOwn = Math.min(remaining, ownAvailable);
-
-    if (fromOwn > 0) {
-      await this.createAllocation(
-        line.id,
-        fromOwn,
-        "OWN_QUOTA",
+    if (requisitionType !== "PERSONAL") {
+      const ownAvailable = await AvailabilityService.availableToDept(
         departmentId,
-        tx,
-      );
-      qtyOwnQuota = fromOwn;
-      remaining -= fromOwn;
-    }
-
-    // Tier 2 only makes sense as a distinct source when the office is not the
-    // requesting department itself — otherwise it is the same quota twice.
-    if (remaining > 0 && officeDept && officeDept.id !== departmentId) {
-      const officeAvailable = await AvailabilityService.availableToDept(
-        officeDept.id,
         line.componentId,
         window,
-        requisitionId,
+        undefined,
         tx,
       );
 
-      const fromOffice = Math.min(remaining, officeAvailable);
+      const fromOwn = Math.min(remaining, ownAvailable);
 
-      if (fromOffice > 0) {
+      if (fromOwn > 0) {
         await this.createAllocation(
           line.id,
-          fromOffice,
-          "SPARE",
-          officeDept.id,
+          fromOwn,
+          "OWN_QUOTA",
+          departmentId,
           tx,
         );
-        qtySpare = fromOffice;
-        remaining -= fromOffice;
+        qtyOwnQuota = fromOwn;
+        remaining -= fromOwn;
+      }
+
+      // Tier 2: use approved replacements from this department's available quota.
+      if (remaining > 0) {
+        const requestedComponents = await tx.requisitionLine.findMany({
+          where: { requisitionId },
+          select: { componentId: true },
+        });
+        const requestedIds = new Set(requestedComponents.map((item) => item.componentId));
+        const substitutes = await tx.componentSubstitute.findMany({
+          where: {
+            originalId: line.componentId,
+            substitute: { isActive: true },
+          },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        });
+
+        for (const substitute of substitutes) {
+          if (remaining <= 0) break;
+          // The same component cannot be both a requested line and its replacement.
+          if (requestedIds.has(substitute.substituteId)) continue;
+
+          const availablePhysical = await AvailabilityService.availableToDept(
+            departmentId,
+            substitute.substituteId,
+            window,
+            undefined,
+            tx,
+          );
+          const equivalent = Math.min(
+            remaining,
+            Math.floor(availablePhysical / substitute.ratio),
+          );
+          if (equivalent <= 0) continue;
+
+          await this.createAllocation(
+            line.id,
+            equivalent * substitute.ratio,
+            "SUBSTITUTE",
+            departmentId,
+            tx,
+            { componentId: substitute.substituteId, ratio: substitute.ratio },
+          );
+          qtySubstitute += equivalent;
+          remaining -= equivalent;
+        }
+      }
+
+    }
+
+    // Personal requests draw only from the central spare pool; teaching quotas
+    // and interdepartment borrowing are reserved for class/maintenance work.
+    // Tier 3: use the central spare pool of the requested component.
+    if (remaining > 0) {
+      const [stock, heldSpareResult, heldAll] = await Promise.all([
+        tx.stock.findUnique({ where: { componentId: line.componentId } }),
+        tx.allocation.aggregate({
+          where: {
+            status: "HELD",
+            source: "SPARE",
+            sourceDeptId: null,
+            requisitionLine: {
+              componentId: line.componentId,
+              requisition: {
+                neededFrom: { lt: window.to },
+                neededTo: { gt: window.from },
+              },
+            },
+          },
+          _sum: { qty: true },
+        }),
+        AvailabilityService.heldForComponent(
+          line.componentId,
+          window,
+          undefined,
+          tx,
+        ),
+      ]);
+
+      const spareFree = Math.max(
+        0,
+        (stock?.spareQty ?? 0) - (heldSpareResult._sum.qty ?? 0),
+      );
+      const physicalFree = Math.max(0, (stock?.onHand ?? 0) - heldAll);
+      const fromSpare = Math.min(remaining, spareFree, physicalFree);
+
+      if (fromSpare > 0) {
+        await this.createAllocation(
+          line.id,
+          fromSpare,
+          "SPARE",
+          null,
+          tx,
+        );
+        qtySpare = fromSpare;
+        remaining -= fromSpare;
       }
     }
 
-    // Tier 3 — borrow from whichever other academic departments have spare
+    // Tier 4: borrow from whichever other academic departments have spare
     // capacity, most-available first, until the shortfall is covered or the
     // lenders run out. findLenders() already excludes the requesting
     // department and every office department (isOffice: false), so there is
     // no risk of "borrowing" from tier 1 or tier 2's own source.
-    if (remaining > 0) {
+    if (remaining > 0 && requisitionType !== "PERSONAL") {
       const lenders = await BorrowService.findLenders(
         line.componentId,
         remaining,
@@ -1111,14 +1509,14 @@ export class RequisitionService {
       }
     }
 
-    // Tier 4 — whatever tiers 1-3 could not source becomes a purchase
+    // Tier 5: whatever tiers 1-4 could not source becomes a purchase
     // request, linked back to this requisition so its approval history is
     // traceable. Deliberately does not touch `remaining`: a pending
     // purchase is not stock in hand, so the shortfall this line reports
     // (qtyShort) must stay accurate, and the requisition must stay
     // SUBMITTED rather than READY until that purchase is actually fulfilled
     // — a later stage's concern, not this resolver's.
-    if (remaining > 0) {
+    if (remaining > 0 && requisitionType !== "PERSONAL") {
       await PurchaseService.createPurchaseRequest(
         {
           componentId: line.componentId,
@@ -1136,7 +1534,7 @@ export class RequisitionService {
 
     await tx.requisitionLine.update({
       where: { id: line.id },
-      data: { qtyOwnQuota, qtySpare, qtyBorrowed, qtyShort: remaining },
+      data: { qtyOwnQuota, qtySubstitute, qtySpare, qtyBorrowed, qtyShort: remaining },
     });
 
     return remaining;
@@ -1145,11 +1543,11 @@ export class RequisitionService {
   /**
    * Submits a DRAFT for resolution. The whole read-decide-write cycle runs
    * inside one Serializable transaction: two submits racing for the same
-   * last units — whether a department's own quota, the office's spare pool,
+   * last units — whether a department's own quota, the shared spare pool,
    * or another department's lendable stock — will see Postgres abort one of
    * them (P2034) rather than let both believe they got the stock, because
    * every tier's availability reads go through the same `tx` as the
-   * allocations (and, for tier 3, BorrowRequests; for tier 4,
+   * allocations (and, for tier 4, BorrowRequests; for tier 5,
    * PurchaseRequests) they lead to.
    */
   static async submitRequisition(
@@ -1176,6 +1574,10 @@ export class RequisitionService {
             throw new Error("Only a draft requisition can be changed");
           }
 
+          if (requisition.type === "PERSONAL") {
+            await PenaltyService.assertPersonalAllowed(requisition.requestedById, tx);
+          }
+
           await this.releaseAllocations(id, tx);
 
           const window: AvailabilityWindow = {
@@ -1183,20 +1585,15 @@ export class RequisitionService {
             to: requisition.neededTo,
           };
 
-          const officeDept = await tx.department.findFirst({
-            where: { isOffice: true, isActive: true },
-            orderBy: { createdAt: "asc" },
-          });
-
           let fullyResolved = true;
 
           for (const line of requisition.lines) {
             const remaining = await this.resolveLine(
               tx,
               id,
+              requisition.type,
               requisition.departmentId,
               window,
-              officeDept,
               line,
               actor.id,
             );
@@ -1245,11 +1642,28 @@ export class RequisitionService {
         componentName: line.component.name,
         qtyNeeded: line.qtyNeeded,
         qtyFromOwn: line.qtyOwnQuota,
+        qtyFromSubstitute: line.qtySubstitute,
+        substitutes: line.allocations
+          .filter((allocation) =>
+            allocation.source === "SUBSTITUTE" &&
+            allocation.status !== "RELEASED" &&
+            allocation.substituteComponent !== null &&
+            allocation.substituteRatio !== null,
+          )
+          .map((allocation) => ({
+            componentId: allocation.substituteComponentId as string,
+            componentCode: allocation.substituteComponent!.code,
+            componentName: allocation.substituteComponent!.name,
+            physicalQty: allocation.qty,
+            ratio: allocation.substituteRatio as number,
+            equivalentQty: allocation.qty / (allocation.substituteRatio as number),
+          })),
         qtyFromOffice: line.qtySpare,
         qtyFromBorrow: line.qtyBorrowed,
-        qtyToPurchase: line.qtyShort,
+        qtyToPurchase: requisition.type === "PERSONAL" ? 0 : line.qtyShort,
         qtyShort: line.qtyShort,
       })),
     };
   }
+
 }

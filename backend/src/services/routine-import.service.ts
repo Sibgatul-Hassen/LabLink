@@ -194,6 +194,7 @@ function parseRow(line: number, cells: string[]): ParsedRow | ImportRowResult {
 export class RoutineImportService {
   static async importRoutineSlots(
     csv: string,
+    departmentId?: string | null,
   ): Promise<ImportRoutineSlotsResult> {
     const entries = splitLines(csv);
 
@@ -207,6 +208,18 @@ export class RoutineImportService {
 
     if (dataRows.length === 0) {
       throw new CsvFormatError("The CSV has a header row but no data rows.");
+    }
+
+    if (departmentId !== undefined) {
+      const codes = dataRows.map((entry) => parseRow(entry.line, entry.cells))
+        .filter((row): row is ParsedRow => !("status" in row))
+        .map((row) => row.courseCode);
+      const courses = await prisma.course.findMany({
+        where: { code: { in: codes } }, select: { departmentId: true },
+      });
+      if (!departmentId || courses.some((course) => course.departmentId !== departmentId)) {
+        throw new Error("Forbidden");
+      }
     }
 
     const today = utcDateOnly(new Date());

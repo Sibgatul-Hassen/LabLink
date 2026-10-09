@@ -11,6 +11,7 @@ import {
   getSessions,
 } from "../api/session.api";
 import { useAuthStore } from "../store/authStore";
+import LiveOrderModal from "../components/LiveOrderModal";
 import type { ClassSession, SessionStatus } from "../types";
 
 const DAY_NAMES = [
@@ -59,9 +60,11 @@ export default function ClassSessions() {
   const [horizonDays, setHorizonDays] = useState("21");
   const [generateMessage, setGenerateMessage] = useState("");
   const [actionError, setActionError] = useState("");
+  const [orderSession, setOrderSession] = useState<ClassSession | null>(null);
+  const [orderMessage, setOrderMessage] = useState("");
 
   const limit = 15;
-  const isAdmin = user?.role === "SYSTEM_ADMIN";
+  const canGenerate = user?.role === "CENTRAL_STORE_OFFICER";
   const isInstructor = user?.role === "INSTRUCTOR";
 
   const { data, isLoading, isError, error } = useQuery({
@@ -135,15 +138,21 @@ export default function ClassSessions() {
   // on sections they teach. The server enforces this regardless; hiding the
   // control just avoids offering an action that would be refused.
   function canAssign(session: ClassSession): boolean {
-    if (isAdmin) {
-      return true;
-    }
-
     if (isInstructor) {
       return session.routineSlot.section.instructorId === user?.id;
     }
 
     return false;
+  }
+
+  function canOrder(session: ClassSession): boolean {
+    return (
+      canAssign(session) &&
+      session.status !== "CANCELLED" &&
+      session.status !== "COMPLETED" &&
+      new Date(session.endsAt).getTime() > Date.now() &&
+      (!session.requisition || session.requisition.status === "DRAFT")
+    );
   }
 
   function handleGenerate() {
@@ -174,7 +183,7 @@ export default function ClassSessions() {
           </p>
         </div>
 
-        {isAdmin && (
+        {canGenerate && (
           <div className="flex items-end gap-3">
             <div className="w-32">
               <label
@@ -190,7 +199,7 @@ export default function ClassSessions() {
                 min={1}
                 value={horizonDays}
                 onChange={(event) => setHorizonDays(event.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
               />
             </div>
 
@@ -207,6 +216,12 @@ export default function ClassSessions() {
           </div>
         )}
       </div>
+
+      {orderMessage && (
+        <div role="status" className="rounded-lg bg-green-50 px-4 py-3 text-sm text-green-700">
+          {orderMessage}
+        </div>
+      )}
 
       {generateMessage && (
         <div
@@ -243,7 +258,7 @@ export default function ClassSessions() {
                 setLabFilter(event.target.value);
                 setPage(1);
               }}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
             >
               <option value="">All labs</option>
               {labs.map((lab) => (
@@ -269,7 +284,7 @@ export default function ClassSessions() {
                 setCourseFilter(event.target.value);
                 setPage(1);
               }}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
             >
               <option value="">All courses</option>
               {courses.map((course) => (
@@ -296,7 +311,7 @@ export default function ClassSessions() {
                 setFromFilter(event.target.value);
                 setPage(1);
               }}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
             />
           </div>
 
@@ -316,7 +331,7 @@ export default function ClassSessions() {
                 setToFilter(event.target.value);
                 setPage(1);
               }}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
             />
           </div>
         </div>
@@ -334,7 +349,7 @@ export default function ClassSessions() {
         ) : data?.data.length === 0 ? (
           <div className="p-8 text-center text-sm text-slate-500">
             No class sessions found.{" "}
-            {isAdmin
+            {canGenerate
               ? "Use Generate Sessions to create them from the routine."
               : ""}
           </div>
@@ -361,6 +376,11 @@ export default function ClassSessions() {
                   <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Status
                   </th>
+                  {isInstructor && (
+                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Order
+                    </th>
+                  )}
                 </tr>
               </thead>
 
@@ -417,7 +437,7 @@ export default function ClassSessions() {
                               })
                             }
                             disabled={assignMutation.isPending}
-                            className="w-56 rounded-lg border border-slate-300 px-3 py-1.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+                            className="w-56 rounded-lg border border-slate-300 px-3 py-1.5 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             <option value="">Not assigned</option>
                             {courseExperiments.map((experiment) => (
@@ -445,6 +465,21 @@ export default function ClassSessions() {
                           {session.status}
                         </span>
                       </td>
+                      {isInstructor && (
+                        <td className="whitespace-nowrap px-6 py-4 text-sm">
+                          {canOrder(session) ? (
+                            <button
+                              type="button"
+                              onClick={() => { setOrderMessage(""); setOrderSession(session); }}
+                              className="rounded-md bg-slate-900 px-3 py-1.5 font-medium text-white hover:bg-slate-700"
+                            >
+                              {session.requisition ? "Replace draft" : "Order components"}
+                            </button>
+                          ) : session.requisition ? (
+                            <span className="text-slate-500">Already ordered</span>
+                          ) : null}
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -485,6 +520,24 @@ export default function ClassSessions() {
           </div>
         </div>
       </div>
+
+      {orderSession && (
+        <LiveOrderModal
+          key={orderSession.id}
+          session={orderSession}
+          onClose={() => setOrderSession(null)}
+          onOrdered={async (requisition) => {
+            setOrderSession(null);
+            setOrderMessage(
+              "Class order placed: " + requisition.status.replace(/_/g, " ") + ".",
+            );
+            await Promise.all([
+              queryClient.invalidateQueries({ queryKey: ["sessions"] }),
+              queryClient.invalidateQueries({ queryKey: ["requisitions"] }),
+            ]);
+          }}
+        />
+      )}
     </div>
   );
 }

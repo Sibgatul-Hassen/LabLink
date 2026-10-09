@@ -147,8 +147,8 @@ describe("Routine CSV Import API Integration Tests", () => {
         email: "imp-admin@test.com",
         passwordHash: hashedPassword,
         fullName: "Import Test Admin",
-        role: "SYSTEM_ADMIN",
-        departmentId: null,
+        role: "DEPT_STORE_HEAD",
+        departmentId: department.id,
       },
     });
 

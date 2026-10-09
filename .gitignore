@@ -1,34 +1,36 @@
 # Dependencies
-   node_modules/
-   npm-debug.log
-   yarn-debug.log
-   yarn-error.log
-   package-lock.json.bak
+node_modules/
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+package-lock.json.bak
 
-   # Environment variables
-   .env
-   .env.local
-   .env.*.local
+# Environment variables
+.env
+.env.local
+.env.production
+.env.*.local
 
-   # IDE
-   .vscode/
-   .idea/
-   *.swp
-   *.swo
-   *~
-   .DS_Store
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
 
-   # Build output
-   dist/
-   build/
-   *.tsbuildinfo
+# Build output
+dist/
+build/
+*.tsbuildinfo
 
-   # Testing
-   coverage/
-   .nyc_output/
+# Testing
+coverage/
+.nyc_output/
 
-   # Miscellaneous
-   .DS_Store
-   Thumbs.db
-   .cache/
-   .parcel-cache/
+# Miscellaneous
+.DS_Store
+Thumbs.db
+.cache/
+.parcel-cache/
+.tmp-postgres/

@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 
 import { prisma } from "../lib/prisma";
+import { AcademicActor, routineReadScope } from "./academic-read-scope";
 import {
   CreateRoutineSlotRequest,
   ListRoutineSlotsQuery,
@@ -143,12 +144,13 @@ export class RoutineSlotService {
 
   static async listRoutineSlots(
     query: ListRoutineSlotsQuery,
+    actor?: AcademicActor,
   ): Promise<PaginatedRoutineSlotsResponse> {
     const { sectionId, labId, dayOfWeek } = query;
     const page = Number(query.page) || 1;
     const limit = Number(query.limit) || 20;
 
-    const where: Prisma.RoutineSlotWhereInput = {};
+    const where: Prisma.RoutineSlotWhereInput = actor ? { AND: [routineReadScope(actor)] } : {};
 
     if (sectionId) {
       where.sectionId = sectionId;
@@ -178,6 +180,7 @@ export class RoutineSlotService {
 
   static async getRoutineSlotById(
     id: string,
+    actor?: AcademicActor,
   ): Promise<RoutineSlotWithRelations> {
     const routineSlot = await prisma.routineSlot.findUnique({
       where: { id },
@@ -188,6 +191,7 @@ export class RoutineSlotService {
       throw new Error("Routine slot not found");
     }
 
+    if (actor && !(await prisma.routineSlot.count({ where: { id, AND: [routineReadScope(actor)] } }))) throw new Error("Forbidden");
     return routineSlot;
   }
 

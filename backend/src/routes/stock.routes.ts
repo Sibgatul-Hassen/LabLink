@@ -17,7 +17,7 @@ const router = Router();
 // GET /api/stocks - List stock (all authenticated users)
 router.get(
   "/stocks",
-  requireAuth,
+  requireAuth, requireRole("CENTRAL_STORE_OFFICER", "OFFICE_ADMIN", "SYSTEM_ADMIN"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const query = listStocksQuerySchema.parse(req.query);
@@ -37,7 +37,7 @@ router.get(
 // GET /api/stocks/:componentId/movements - Movement history
 router.get(
   "/stocks/:componentId/movements",
-  requireAuth,
+  requireAuth, requireRole("CENTRAL_STORE_OFFICER", "OFFICE_ADMIN", "SYSTEM_ADMIN"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const query = listStockMovementsQuerySchema.parse(req.query);
@@ -65,7 +65,7 @@ router.get(
 // GET /api/stocks/:componentId - Get one stock record
 router.get(
   "/stocks/:componentId",
-  requireAuth,
+  requireAuth, requireRole("CENTRAL_STORE_OFFICER", "OFFICE_ADMIN", "SYSTEM_ADMIN"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const stock = await StockService.getStockByComponentId(
@@ -93,7 +93,7 @@ router.get(
 router.patch(
   "/stocks/:componentId/reorder-point",
   requireAuth,
-  requireRole("CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  requireRole("CENTRAL_STORE_OFFICER"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const validated = updateReorderPointSchema.parse(req.body);
@@ -123,7 +123,7 @@ router.patch(
 router.post(
   "/stocks/:componentId/adjust",
   requireAuth,
-  requireRole("CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  requireRole("CENTRAL_STORE_OFFICER"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       if (!req.user) {
@@ -167,7 +167,7 @@ router.post(
 router.post(
   "/stocks/transfer",
   requireAuth,
-  requireRole("CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  requireRole("CENTRAL_STORE_OFFICER"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       if (!req.user) {

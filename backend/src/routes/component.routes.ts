@@ -1,7 +1,7 @@
 import { Router, Response } from "express";
 import { ComponentService } from "../services/component.service";
 import { requireAuth } from "../middleware/auth";
-import { requireRole } from "../middleware/rbac";
+import { ALL_ROLES, requireRole } from "../middleware/rbac";
 import { departmentScope } from "../middleware/scope";
 import {
   createComponentSchema,
@@ -17,11 +17,11 @@ import {
 
 const router = Router();
 
-// POST /api/components - Create (CENTRAL_STORE_OFFICER, SYSTEM_ADMIN only)
+// Central store owns operational catalogue changes.
 router.post(
   "/components",
   requireAuth,
-  requireRole("CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  requireRole("CENTRAL_STORE_OFFICER"),
   departmentScope,
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
@@ -47,7 +47,7 @@ router.post(
 // GET /api/components - List (all authenticated users)
 router.get(
   "/components",
-  requireAuth,
+  requireAuth, requireRole(...ALL_ROLES),
   departmentScope,
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
@@ -60,10 +60,31 @@ router.get(
   },
 );
 
+// GET /api/components/export/csv - Export components as CSV
+router.get(
+  "/components/export/csv",
+  requireAuth, requireRole(...ALL_ROLES),
+  departmentScope,
+  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const query = listComponentsQuerySchema.parse(req.query);
+      const csv = await ComponentService.exportCsv(query);
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader(
+        "Content-Disposition",
+        'attachment; filename="components.csv"',
+      );
+      res.status(200).send(csv);
+    } catch (error) {
+      res.status(400).json({ error: "Invalid query parameters" });
+    }
+  },
+);
+
 // GET /api/components/:id - Get one (all authenticated users)
 router.get(
   "/components/:id",
-  requireAuth,
+  requireAuth, requireRole(...ALL_ROLES),
   departmentScope,
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
@@ -79,11 +100,11 @@ router.get(
   },
 );
 
-// PATCH /api/components/:id - Update (CENTRAL_STORE_OFFICER, SYSTEM_ADMIN only)
+// Central store updates catalogue items.
 router.patch(
   "/components/:id",
   requireAuth,
-  requireRole("CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  requireRole("CENTRAL_STORE_OFFICER"),
   departmentScope,
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
@@ -109,11 +130,11 @@ router.patch(
   },
 );
 
-// DELETE /api/components/:id - Delete (SYSTEM_ADMIN only)
+// Central store soft deletes catalogue items.
 router.delete(
   "/components/:id",
   requireAuth,
-  requireRole("SYSTEM_ADMIN"),
+  requireRole("CENTRAL_STORE_OFFICER"),
   departmentScope,
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
@@ -130,7 +151,7 @@ router.delete(
 );
 router.get(
   "/components/:id/substitutes",
-  requireAuth,
+  requireAuth, requireRole(...ALL_ROLES),
   departmentScope,
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
@@ -147,7 +168,7 @@ router.get(
 router.post(
   "/components/:id/substitutes",
   requireAuth,
-  requireRole("CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  requireRole("CENTRAL_STORE_OFFICER"),
   departmentScope,
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
@@ -190,7 +211,7 @@ router.post(
 router.patch(
   "/components/:id/substitutes/:subId",
   requireAuth,
-  requireRole("CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  requireRole("CENTRAL_STORE_OFFICER"),
   departmentScope,
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
@@ -214,7 +235,7 @@ router.patch(
 router.delete(
   "/components/:id/substitutes/:subId",
   requireAuth,
-  requireRole("CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  requireRole("CENTRAL_STORE_OFFICER"),
   departmentScope,
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {

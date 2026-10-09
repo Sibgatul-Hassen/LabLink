@@ -681,6 +681,452 @@ async function main() {
     console.log("Seeded: ARD-UNO-R3 → ARD-NANO substitute pair");
   }
 
+  // ─── Department Quotas (Task 6.13) ──────────────────────────────────────────
+  const quotaSpecs = [
+    // CSE Quotas
+    { dept: "CSE", code: "ARD-UNO-R3", qty: 35 },
+    { dept: "CSE", code: "ARD-NANO", qty: 25 },
+    { dept: "CSE", code: "ESP32-DEV", qty: 30 },
+    { dept: "CSE", code: "MULTI-DIG", qty: 15 },
+    { dept: "CSE", code: "OSCIL-50MHZ", qty: 10 },
+    { dept: "CSE", code: "BREAD-830PT", qty: 60 },
+    { dept: "CSE", code: "LED-RED-5MM", qty: 250 },
+    { dept: "CSE", code: "RES-220OHM", qty: 250 },
+    { dept: "CSE", code: "RES-10KOHM", qty: 150 },
+    { dept: "CSE", code: "SERVO-SG90", qty: 25 },
+    { dept: "CSE", code: "ULTRA-HC-SR04", qty: 25 },
+    // EEE Quotas
+    { dept: "EEE", code: "ARD-UNO-R3", qty: 20 },
+    { dept: "EEE", code: "MULTI-DIG", qty: 30 },
+    { dept: "EEE", code: "OSCIL-50MHZ", qty: 20 },
+    { dept: "EEE", code: "BREAD-830PT", qty: 50 },
+    { dept: "EEE", code: "LED-RED-5MM", qty: 200 },
+    { dept: "EEE", code: "RES-220OHM", qty: 200 },
+    { dept: "EEE", code: "RES-10KOHM", qty: 200 },
+    // CIVIL Quotas
+    { dept: "CIVIL", code: "MULTI-DIG", qty: 10 },
+    { dept: "CIVIL", code: "ULTRA-HC-SR04", qty: 15 },
+  ];
+
+  const deptByCode = Object.fromEntries(departments.map((d) => [d.code, d]));
+
+  for (const q of quotaSpecs) {
+    const dept = deptByCode[q.dept];
+    const comp = compByCode[q.code];
+    if (dept && comp) {
+      await prisma.departmentQuota.upsert({
+        where: {
+          departmentId_componentId: {
+            departmentId: dept.id,
+            componentId: comp.id,
+          },
+        },
+        update: { qty: q.qty, suggestedQty: q.qty },
+        create: {
+          departmentId: dept.id,
+          componentId: comp.id,
+          qty: q.qty,
+          suggestedQty: q.qty,
+          confirmedAt: new Date(),
+        },
+      });
+    }
+  }
+  console.log("Seeded:", quotaSpecs.length, "department quotas");
+
+  // ─── 8 Weeks of Historical Class Sessions & Requisitions (Task 6.13) ────────
+  const allRoutineSlots = await prisma.routineSlot.findMany({
+    include: {
+      section: {
+        include: {
+          course: {
+            include: {
+              experiments: {
+                include: { items: true },
+                orderBy: { number: "asc" },
+              },
+            },
+          },
+        },
+      },
+      lab: true,
+    },
+  });
+
+  const now = new Date();
+  const cseRequisitionsWithShortage: string[] = [];
+
+  for (const slot of allRoutineSlots) {
+    const exps = slot.section.course.experiments;
+    if (exps.length === 0) continue;
+
+    const groupSize = slot.lab.groupSize || 4;
+    const groups = Math.ceil(slot.section.studentCount / groupSize);
+
+    // Generate past 8 weeks (weeksAgo 8 down to 1)
+    for (let weeksAgo = 8; weeksAgo >= 1; weeksAgo--) {
+      const utc = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+      );
+      const currentDayOfWeek = utc.getUTCDay();
+      const dayDiff = (currentDayOfWeek - slot.dayOfWeek + 7) % 7;
+      const targetTime =
+        utc.getTime() - (dayDiff + (weeksAgo - 1) * 7 + 7) * 24 * 60 * 60 * 1000;
+      const sessionDate = new Date(targetTime);
+
+      const [startH, startM] = slot.startTime.split(":").map(Number);
+      const [endH, endM] = slot.endTime.split(":").map(Number);
+      const startsAt = new Date(sessionDate.getTime());
+      startsAt.setUTCHours(startH, startM, 0, 0);
+      const endsAt = new Date(sessionDate.getTime());
+      endsAt.setUTCHours(endH, endM, 0, 0);
+
+      const exp = exps[(8 - weeksAgo) % exps.length];
+
+      const session = await prisma.classSession.upsert({
+        where: {
+          routineSlotId_date: {
+            routineSlotId: slot.id,
+            date: sessionDate,
+          },
+        },
+        update: {
+          startsAt,
+          endsAt,
+          experimentId: exp.id,
+          status: "COMPLETED",
+        },
+        create: {
+          routineSlotId: slot.id,
+          date: sessionDate,
+          startsAt,
+          endsAt,
+          experimentId: exp.id,
+          status: "COMPLETED",
+        },
+      });
+
+      const requisition = await prisma.requisition.upsert({
+        where: { classSessionId: session.id },
+        update: {
+          status: "RETURNED",
+          issuedAt: startsAt,
+          returnedAt: endsAt,
+        },
+        create: {
+          type: "CLASS",
+          origin: "AUTO_DRAFT",
+          classSessionId: session.id,
+          requestedById: slot.section.instructorId || users[1].id,
+          departmentId: slot.section.course.departmentId,
+          neededFrom: startsAt,
+          neededTo: endsAt,
+          status: "RETURNED",
+          issuedAt: startsAt,
+          issuedById: users[2].id,
+          returnedAt: endsAt,
+          returnedById: users[2].id,
+        },
+      });
+
+      let reqHadShortage = false;
+
+      for (const item of exp.items) {
+        const comp =
+          compByCode[
+            Object.keys(compByCode).find(
+              (k) => compByCode[k].id === item.componentId,
+            ) ?? ""
+          ];
+        const compCode = comp ? comp.code : "";
+        const qtyNeeded = item.qtyPerGroup * groups;
+
+        let qtyShort = 0;
+        let qtyDamaged = 0;
+        let qtyLost = 0;
+
+        // Controlled shortage patterns
+        if (compCode === "ARD-UNO-R3" && [3, 5, 7].includes(weeksAgo)) {
+          qtyShort = Math.min(qtyNeeded, weeksAgo === 3 ? 6 : 4);
+        } else if (compCode === "ESP32-DEV" && [2, 4, 6].includes(weeksAgo)) {
+          qtyShort = Math.min(qtyNeeded, weeksAgo === 2 ? 4 : 3);
+        } else if (compCode === "SERVO-SG90" && [1, 5].includes(weeksAgo)) {
+          qtyShort = Math.min(qtyNeeded, 2);
+        } else if (compCode === "ULTRA-HC-SR04" && [2, 6].includes(weeksAgo)) {
+          qtyShort = Math.min(qtyNeeded, 3);
+        } else if (compCode === "OSCIL-50MHZ" && [3, 7].includes(weeksAgo)) {
+          qtyShort = Math.min(qtyNeeded, 2);
+        } else if (compCode === "BREAD-830PT" && [1, 4].includes(weeksAgo)) {
+          qtyShort = Math.min(qtyNeeded, 5);
+        }
+
+        const qtyIssued = qtyNeeded - qtyShort;
+
+        // Controlled damage & loss patterns on returned items
+        if (qtyIssued > 0) {
+          if (compCode === "LED-RED-5MM") {
+            qtyDamaged = slot.section.name === "A" ? 2 : 1;
+            qtyLost = slot.section.name === "A" ? 3 : 1;
+          } else if (compCode === "RES-220OHM" && [2, 4, 6].includes(weeksAgo)) {
+            qtyLost = 2;
+          } else if (compCode === "RES-10KOHM" && [3, 7].includes(weeksAgo)) {
+            qtyLost = 1;
+          } else if (compCode === "JUMP-MM" && [1, 3, 5, 7].includes(weeksAgo)) {
+            qtyLost = 1;
+          } else if (
+            compCode === "BREAD-830PT" &&
+            weeksAgo === 4 &&
+            slot.section.course.code === "CSE 2216"
+          ) {
+            qtyDamaged = 1;
+          } else if (compCode === "SERVO-SG90" && weeksAgo === 4) {
+            qtyDamaged = 1;
+          } else if (compCode === "ULTRA-HC-SR04" && weeksAgo === 3) {
+            qtyDamaged = 1;
+          } else if (
+            compCode === "ARD-UNO-R3" &&
+            weeksAgo === 5 &&
+            slot.section.name === "A"
+          ) {
+            qtyDamaged = 1;
+          }
+        }
+
+        const qtyReturnedGood = Math.max(0, qtyIssued - qtyDamaged - qtyLost);
+
+        await prisma.requisitionLine.upsert({
+          where: {
+            requisitionId_componentId: {
+              requisitionId: requisition.id,
+              componentId: item.componentId,
+            },
+          },
+          update: {
+            qtyNeeded,
+            qtyIssued,
+            qtyReturnedGood,
+            qtyDamaged,
+            qtyLost,
+            qtyShort,
+            qtyOwnQuota: qtyIssued,
+          },
+          create: {
+            requisitionId: requisition.id,
+            componentId: item.componentId,
+            qtyNeeded,
+            qtyIssued,
+            qtyReturnedGood,
+            qtyDamaged,
+            qtyLost,
+            qtyShort,
+            qtyOwnQuota: qtyIssued,
+          },
+        });
+
+        if (qtyShort > 0) {
+          reqHadShortage = true;
+        }
+      }
+
+      if (reqHadShortage) {
+        cseRequisitionsWithShortage.push(requisition.id);
+      }
+    }
+  }
+  console.log("Seeded: 8 weeks of historical ClassSessions and Requisitions");
+
+  // ─── Inter-Department Borrowing Network (Task 6.13) ─────────────────────────
+  const eeeRequisition = await prisma.requisition.upsert({
+    where: { id: "seed-req-eee-borrow-anchor" },
+    update: { status: "RETURNED" },
+    create: {
+      id: "seed-req-eee-borrow-anchor",
+      type: "MAINTENANCE",
+      origin: "LAB_ASSISTANT",
+      requestedById: users[2].id,
+      departmentId: departments[1].id, // EEE
+      neededFrom: new Date(now.getTime() - 25 * 24 * 60 * 60 * 1000),
+      neededTo: new Date(now.getTime() - 20 * 24 * 60 * 60 * 1000),
+      status: "RETURNED",
+    },
+  });
+
+  const civilRequisition = await prisma.requisition.upsert({
+    where: { id: "seed-req-civil-borrow-anchor" },
+    update: { status: "RETURNED" },
+    create: {
+      id: "seed-req-civil-borrow-anchor",
+      type: "CLASS",
+      origin: "LAB_ASSISTANT",
+      requestedById: users[2].id,
+      departmentId: departments[2].id, // CIVIL
+      neededFrom: new Date(now.getTime() - 15 * 24 * 60 * 60 * 1000),
+      neededTo: new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000),
+      status: "RETURNED",
+    },
+  });
+
+  const cseAnchorReqId =
+    cseRequisitionsWithShortage[0] ||
+    (
+      await prisma.requisition.findFirst({
+        where: { departmentId: departments[0].id },
+      })
+    )?.id;
+
+  if (cseAnchorReqId) {
+    const borrowSpecs = [
+      // CSE borrows from EEE (3 requests)
+      {
+        ref: "BORROW-CSE-EEE-1",
+        reqId: cseAnchorReqId,
+        lender: departments[1].id, // EEE
+        borrower: departments[0].id, // CSE
+        compCode: "ARD-UNO-R3",
+        qty: 12,
+        status: "RETURNED" as const,
+        daysAgo: 35,
+      },
+      {
+        ref: "BORROW-CSE-EEE-2",
+        reqId: cseAnchorReqId,
+        lender: departments[1].id, // EEE
+        borrower: departments[0].id, // CSE
+        compCode: "ARD-UNO-R3",
+        qty: 8,
+        status: "RETURNED" as const,
+        daysAgo: 21,
+      },
+      {
+        ref: "BORROW-CSE-EEE-3",
+        reqId: cseAnchorReqId,
+        lender: departments[1].id, // EEE
+        borrower: departments[0].id, // CSE
+        compCode: "ESP32-DEV",
+        qty: 6,
+        status: "RETURNED" as const,
+        daysAgo: 14,
+      },
+      // EEE borrows from CSE (2 requests)
+      {
+        ref: "BORROW-EEE-CSE-1",
+        reqId: eeeRequisition.id,
+        lender: departments[0].id, // CSE
+        borrower: departments[1].id, // EEE
+        compCode: "OSCIL-50MHZ",
+        qty: 4,
+        status: "RETURNED" as const,
+        daysAgo: 28,
+      },
+      {
+        ref: "BORROW-EEE-CSE-2",
+        reqId: eeeRequisition.id,
+        lender: departments[0].id, // CSE
+        borrower: departments[1].id, // EEE
+        compCode: "MULTI-DIG",
+        qty: 10,
+        status: "RETURNED" as const,
+        daysAgo: 18,
+      },
+      // CIVIL borrows from EEE (2 requests)
+      {
+        ref: "BORROW-CIVIL-EEE-1",
+        reqId: civilRequisition.id,
+        lender: departments[1].id, // EEE
+        borrower: departments[2].id, // CIVIL
+        compCode: "MULTI-DIG",
+        qty: 5,
+        status: "RETURNED" as const,
+        daysAgo: 12,
+      },
+      {
+        ref: "BORROW-CIVIL-EEE-2",
+        reqId: civilRequisition.id,
+        lender: departments[1].id, // EEE
+        borrower: departments[2].id, // CIVIL
+        compCode: "ULTRA-HC-SR04",
+        qty: 6,
+        status: "RETURNED" as const,
+        daysAgo: 7,
+      },
+      // CIVIL borrows from CSE (1 request)
+      {
+        ref: "BORROW-CIVIL-CSE-1",
+        reqId: civilRequisition.id,
+        lender: departments[0].id, // CSE
+        borrower: departments[2].id, // CIVIL
+        compCode: "BREAD-830PT",
+        qty: 15,
+        status: "HANDED_OVER" as const,
+        daysAgo: 4,
+      },
+    ];
+
+    for (const b of borrowSpecs) {
+      const comp = compByCode[b.compCode];
+      if (!comp) continue;
+
+      const borrowDate = new Date(
+        now.getTime() - b.daysAgo * 24 * 60 * 60 * 1000,
+      );
+      const returnDate = new Date(
+        borrowDate.getTime() + 5 * 24 * 60 * 60 * 1000,
+      );
+
+      const existingBorrow = await prisma.borrowRequest.findFirst({
+        where: { remarks: b.ref },
+      });
+
+      let borrowId = existingBorrow?.id;
+
+      if (existingBorrow) {
+        await prisma.borrowRequest.update({
+          where: { id: existingBorrow.id },
+          data: {
+            status: b.status,
+            lenderDeptId: b.lender,
+            borrowerDeptId: b.borrower,
+            returnBy: returnDate,
+          },
+        });
+      } else {
+        const created = await prisma.borrowRequest.create({
+          data: {
+            requisitionId: b.reqId,
+            lenderDeptId: b.lender,
+            borrowerDeptId: b.borrower,
+            status: b.status,
+            returnBy: returnDate,
+            remarks: b.ref,
+            createdAt: borrowDate,
+          },
+        });
+        borrowId = created.id;
+      }
+
+      if (borrowId) {
+        await prisma.borrowLine.deleteMany({
+          where: { borrowRequestId: borrowId },
+        });
+
+        await prisma.borrowLine.create({
+          data: {
+            borrowRequestId: borrowId,
+            componentId: comp.id,
+            qtyRequested: b.qty,
+            qtyApproved: b.qty,
+            qtyReturned: b.status === "RETURNED" ? b.qty : 0,
+          },
+        });
+      }
+    }
+    console.log(
+      "Seeded:",
+      borrowSpecs.length,
+      "inter-department borrow requests with lines",
+    );
+  }
+
   console.log("Seeding complete!");
 }
 

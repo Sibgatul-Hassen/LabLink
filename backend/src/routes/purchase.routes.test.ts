@@ -49,6 +49,7 @@ const testEmails = [
   "pur-central@test.com",
   "pur-officeadmin@test.com",
   "pur-deptstorehead@test.com",
+  "pur-other-deptstorehead@test.com",
 ];
 
 async function cleanupTestData() {
@@ -119,6 +120,7 @@ describe("Purchase Request API Integration Tests", () => {
   let centralToken: string;
   let officeAdminToken: string;
   let deptStoreHeadToken: string;
+  let otherDeptStoreHeadToken: string;
 
   beforeAll(async () => {
     await cleanupTestData();
@@ -239,6 +241,11 @@ describe("Purchase Request API Integration Tests", () => {
     });
     deptStoreHeadUserId = deptStoreHeadUser.id;
 
+    await prisma.user.create({ data: {
+      email: "pur-other-deptstorehead@test.com", passwordHash: hashedPassword,
+      fullName: "Purchase Test Other Dept Head", role: "DEPT_STORE_HEAD", departmentId: deptB.id,
+    } });
+
     const officeAdminUser = await prisma.user.create({
       data: {
         email: "pur-officeadmin@test.com",
@@ -264,6 +271,7 @@ describe("Purchase Request API Integration Tests", () => {
     centralToken = await login("pur-central@test.com");
     officeAdminToken = await login("pur-officeadmin@test.com");
     deptStoreHeadToken = await login("pur-deptstorehead@test.com");
+    otherDeptStoreHeadToken = await login("pur-other-deptstorehead@test.com");
   });
 
   afterAll(async () => {
@@ -315,7 +323,7 @@ describe("Purchase Request API Integration Tests", () => {
       expect(res.body.data.steps[0].level).toBe(1);
       expect(res.body.data.steps[0].decision).toBe("PENDING");
       expect(res.body.data.steps[0].approverRole).toBe(
-        "CENTRAL_STORE_OFFICER",
+        "DEPT_STORE_HEAD",
       );
       expect(res.body.data.steps[0].remarks).toBe("Running low on stock");
     });
@@ -331,6 +339,15 @@ describe("Purchase Request API Integration Tests", () => {
         });
 
       expect(res.status).toBe(404);
+    });
+
+    it("starts a departmentless central reorder at rung 2", async () => {
+      const res = await request(app).post("/api/purchase-requests")
+        .set("Authorization", `Bearer ${centralToken}`)
+        .send({ componentId, qtyRequested: 2, reason: "Office-wide reorder" });
+      expect(res.status).toBe(201);
+      expect(res.body.data.currentLevel).toBe(2);
+      expect(res.body.data.steps[0].approverRole).toBe("CENTRAL_STORE_OFFICER");
     });
   });
 
@@ -404,11 +421,11 @@ describe("Purchase Request API Integration Tests", () => {
       expect(res.body.data.id).toBe(created.body.data.id);
       expect(res.body.data.steps).toHaveLength(1);
       expect(res.body.data.steps[0].approverRole).toBe(
-        "CENTRAL_STORE_OFFICER",
+        "DEPT_STORE_HEAD",
       );
     });
 
-    it("returns 404 for a purchase request outside the actor's scope", async () => {
+    it("returns 403 for a purchase request outside the actor's scope", async () => {
       const created = await request(app)
         .post("/api/purchase-requests")
         .set("Authorization", `Bearer ${otherLabAsstToken}`)
@@ -422,12 +439,12 @@ describe("Purchase Request API Integration Tests", () => {
         .get(`/api/purchase-requests/${created.body.data.id}`)
         .set("Authorization", `Bearer ${labAsstToken}`);
 
-      expect(res.status).toBe(404);
+      expect(res.status).toBe(403);
     });
   });
 
   describe("AGGREGATION - Task 5.10", () => {
-    it("auto-merges two dept's pending requests for the same component into one on create", async () => {
+    it("keeps different departments' approval ladders separate", async () => {
       const first = await request(app)
         .post("/api/purchase-requests")
         .set("Authorization", `Bearer ${labAsstToken}`)
@@ -449,23 +466,19 @@ describe("Purchase Request API Integration Tests", () => {
         });
       expect(second.status).toBe(201);
 
-      // Auto-aggregation folds the new request into the oldest survivor, so
-      // the response for the second create is the same (now-updated) row,
-      // not a distinct new one.
-      expect(second.body.data.id).toBe(firstId);
-      expect(second.body.data.qtyNeeded).toBe(13);
+      expect(second.body.data.id).not.toBe(firstId);
+      expect(second.body.data.qtyNeeded).toBe(8);
 
       const pending = await prisma.purchaseRequest.findMany({
         where: { componentId: aggComponentId, status: "PENDING" },
       });
-      expect(pending).toHaveLength(1);
-      expect(pending[0].id).toBe(firstId);
-      expect(pending[0].qtyNeeded).toBe(13);
+      expect(pending).toHaveLength(2);
+      expect(pending.find((item) => item.id === firstId)?.qtyNeeded).toBe(5);
 
       const cancelled = await prisma.purchaseRequest.findMany({
         where: { componentId: aggComponentId, status: "CANCELLED" },
       });
-      expect(cancelled).toHaveLength(1);
+      expect(cancelled).toHaveLength(0);
     });
 
     it("manually aggregates pending requests via POST /purchase-requests/aggregate", async () => {
@@ -500,7 +513,7 @@ describe("Purchase Request API Integration Tests", () => {
         data: {
           componentId: manualAggComponentId,
           qtyNeeded: 6,
-          raisedById: otherLabAsstUserId,
+          raisedById: labAsstUserId,
           status: "PENDING",
           currentLevel: 1,
           steps: {
@@ -666,7 +679,7 @@ describe("Purchase Request API Integration Tests", () => {
       expect(ids).not.toContain(decidedId);
     });
 
-    it("shows an oversight role every pending rung", async () => {
+    it("shows office admin only its assigned rung", async () => {
       const res = await request(app)
         .get("/api/purchase-requests/queue")
         .set("Authorization", `Bearer ${officeAdminToken}`);
@@ -674,8 +687,8 @@ describe("Purchase Request API Integration Tests", () => {
       expect(res.status).toBe(200);
 
       const ids = res.body.data.map((pr: { id: string }) => pr.id);
-      expect(ids).toContain(criticalId);
-      expect(ids).toContain(lowId);
+      expect(ids).not.toContain(criticalId);
+      expect(ids).not.toContain(lowId);
       expect(ids).toContain(otherRoleId);
       // Still excluded — already decided, not "current rung" for anyone.
       expect(ids).not.toContain(decidedId);
@@ -758,6 +771,18 @@ describe("Purchase Request API Integration Tests", () => {
       expect(res.status).toBe(403);
     });
 
+    it("returns 403 when a department head attempts another department's rung 1", async () => {
+      const created = await request(app).post("/api/purchase-requests")
+        .set("Authorization", `Bearer ${labAsstToken}`)
+        .send({ componentId: decideWrongRungComponentId, qtyRequested: 1, reason: "Scope check" });
+      expect(created.status).toBe(201);
+      const result = await request(app)
+        .post(`/api/purchase-requests/${created.body.data.id}/decide`)
+        .set("Authorization", `Bearer ${otherDeptStoreHeadToken}`)
+        .send({ action: "APPROVE" });
+      expect(result.status).toBe(403);
+    });
+
     it("walks a request up all 3 rungs, minting the next ApprovalStep at each approval, then marks it APPROVED", async () => {
       const created = await request(app)
         .post("/api/purchase-requests")
@@ -772,7 +797,7 @@ describe("Purchase Request API Integration Tests", () => {
 
       const rung1 = await request(app)
         .post(`/api/purchase-requests/${id}/decide`)
-        .set("Authorization", `Bearer ${centralToken}`)
+        .set("Authorization", `Bearer ${deptStoreHeadToken}`)
         .send({ action: "APPROVE", remarks: "Confirmed dept is out" });
 
       expect(rung1.status).toBe(200);
@@ -781,19 +806,33 @@ describe("Purchase Request API Integration Tests", () => {
       expect(rung1.body.data.steps).toHaveLength(2);
       expect(rung1.body.data.steps[0].decision).toBe("APPROVED");
       expect(rung1.body.data.steps[1].level).toBe(2);
-      expect(rung1.body.data.steps[1].approverRole).toBe("DEPT_STORE_HEAD");
+      expect(rung1.body.data.steps[1].approverRole).toBe("CENTRAL_STORE_OFFICER");
       expect(rung1.body.data.steps[1].decision).toBe("PENDING");
 
       // Task 5.20: escalating to rung 2 notifies every DEPT_STORE_HEAD —
       // the new step has no assigned approverId yet, so it's role-wide.
       const rung2Notification = await prisma.notification.findFirst({
-        where: { userId: deptStoreHeadUserId, refType: "PURCHASE", refId: id },
+        where: { userId: centralUserId, refType: "PURCHASE", refId: id },
       });
       expect(rung2Notification).not.toBeNull();
 
+      const deptQueue = await request(app)
+        .get("/api/purchase-requests/queue")
+        .set("Authorization", `Bearer ${centralToken}`);
+      expect(deptQueue.status).toBe(200);
+      expect(deptQueue.body.data.map((pr: { id: string }) => pr.id)).toContain(id);
+
+      // The department head sees purchase requests raised by colleagues in
+      // the same department after their rung has advanced.
+      const deptList = await request(app)
+        .get("/api/purchase-requests")
+        .set("Authorization", `Bearer ${deptStoreHeadToken}`);
+      expect(deptList.status).toBe(200);
+      expect(deptList.body.data.map((pr: { id: string }) => pr.id)).toContain(id);
+
       const rung2 = await request(app)
         .post(`/api/purchase-requests/${id}/decide`)
-        .set("Authorization", `Bearer ${deptStoreHeadToken}`)
+        .set("Authorization", `Bearer ${centralToken}`)
         .send({ action: "APPROVE", remarks: "Endorsed" });
 
       expect(rung2.status).toBe(200);
@@ -804,6 +843,12 @@ describe("Purchase Request API Integration Tests", () => {
       expect(rung2.body.data.steps[2].level).toBe(3);
       expect(rung2.body.data.steps[2].approverRole).toBe("OFFICE_ADMIN");
       expect(rung2.body.data.steps[2].decision).toBe("PENDING");
+
+      const afterRung2 = await request(app)
+        .get("/api/purchase-requests/queue")
+        .set("Authorization", `Bearer ${centralToken}`);
+      expect(afterRung2.status).toBe(200);
+      expect(afterRung2.body.data.map((pr: { id: string }) => pr.id)).not.toContain(id);
 
       // Task 5.20: escalating to rung 3 notifies every OFFICE_ADMIN.
       const rung3Notification = await prisma.notification.findFirst({
@@ -848,7 +893,7 @@ describe("Purchase Request API Integration Tests", () => {
 
       const res = await request(app)
         .post(`/api/purchase-requests/${id}/decide`)
-        .set("Authorization", `Bearer ${centralToken}`)
+        .set("Authorization", `Bearer ${deptStoreHeadToken}`)
         .send({ action: "REJECT", remarks: "Dept actually has stock" });
 
       expect(res.status).toBe(200);
@@ -877,8 +922,8 @@ describe("Purchase Request API Integration Tests", () => {
       const id = created.body.data.id;
 
       for (const token of [
-        centralToken,
         deptStoreHeadToken,
+        centralToken,
         officeAdminToken,
       ]) {
         const res = await request(app)
@@ -901,8 +946,8 @@ describe("Purchase Request API Integration Tests", () => {
         final?.steps.every((step) => step.decision === "APPROVED"),
       ).toBe(true);
       expect(final?.steps.map((step) => step.approverRole)).toEqual([
-        "CENTRAL_STORE_OFFICER",
         "DEPT_STORE_HEAD",
+        "CENTRAL_STORE_OFFICER",
         "OFFICE_ADMIN",
       ]);
     });
@@ -970,8 +1015,8 @@ describe("Purchase Request API Integration Tests", () => {
       const id = created.body.data.id;
 
       for (const token of [
-        centralToken,
         deptStoreHeadToken,
+        centralToken,
         officeAdminToken,
       ]) {
         const res = await request(app)

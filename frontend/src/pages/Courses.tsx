@@ -1,4 +1,5 @@
 import axios from "axios";
+import { useAppDialog } from "../components/ui/dialog";
 import { type FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -37,6 +38,7 @@ function getErrorMessage(error: unknown): string {
 }
 
 export default function Courses() {
+  const { confirm } = useAppDialog();
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
 
@@ -52,7 +54,7 @@ export default function Courses() {
   const [deleteError, setDeleteError] = useState("");
 
   const limit = 10;
-  const canManage = user?.role === "SYSTEM_ADMIN";
+  const canManage = user?.role === "DEPT_STORE_HEAD";
 
   const departmentsQuery = useQuery({
     queryKey: ["departments", "course-options"],
@@ -171,8 +173,8 @@ export default function Courses() {
     saveMutation.mutate(payload);
   }
 
-  function handleDelete(course: Course) {
-    const confirmed = window.confirm(
+  async function handleDelete(course: Course) {
+    const confirmed = await confirm(
       `Delete course "${course.code} - ${course.title}"?`,
     );
 
@@ -227,7 +229,7 @@ export default function Courses() {
                 setPage(1);
               }}
               placeholder="Search by code or title"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
             />
           </div>
 
@@ -246,7 +248,7 @@ export default function Courses() {
                 setDepartmentId(event.target.value);
                 setPage(1);
               }}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
             >
               <option value="">All Departments</option>
 
@@ -447,7 +449,7 @@ export default function Courses() {
                     }))
                   }
                   placeholder="Example: CSE 3216"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                 />
               </div>
 
@@ -470,7 +472,7 @@ export default function Courses() {
                     }))
                   }
                   placeholder="Example: Microprocessor and Microcontroller"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                 />
               </div>
 
@@ -491,7 +493,7 @@ export default function Courses() {
                       departmentId: event.target.value,
                     }))
                   }
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                 >
                   <option value="">Select a department</option>
 

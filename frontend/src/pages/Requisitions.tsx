@@ -1,14 +1,18 @@
 import axios from "axios";
-import { Fragment, type FormEvent, useState } from "react";
+import { useAppDialog } from "../components/ui/dialog";
+import { Fragment, type FormEvent, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { getComponents } from "../api/component.api";
 import { getExperiment } from "../api/experiment.api";
 import { getLab } from "../api/lab.api";
+import { getPenaltyBlockStatus } from "../api/penalty.api";
 import { getSessions } from "../api/session.api";
 import {
   addRequisitionLine,
+  cancelRequisition,
   createRequisition,
   deleteRequisition,
   draftRequisitionForSession,
@@ -49,10 +53,6 @@ const STATUS_STYLES: Record<RequisitionStatus, string> = {
  * authority; this only avoids offering a button that would return 403.
  */
 function raisableTypes(role: Role | undefined): RequisitionType[] {
-  if (role === "SYSTEM_ADMIN") {
-    return ["CLASS", "PERSONAL", "MAINTENANCE"];
-  }
-
   if (role === "STUDENT") {
     return ["PERSONAL"];
   }
@@ -66,7 +66,7 @@ function raisableTypes(role: Role | undefined): RequisitionType[] {
 
 /** Mirrors the requireRole guard on the issue/return endpoints. */
 function canIssueOrReturn(role: Role | undefined): boolean {
-  return role === "CENTRAL_STORE_OFFICER" || role === "SYSTEM_ADMIN";
+  return role === "CENTRAL_STORE_OFFICER";
 }
 
 interface ReturnDraft {
@@ -118,8 +118,8 @@ function TierBadge({
  * actually run — DRAFT has nothing to break down yet, and past READY the
  * lines' own qtyIssued/return fields tell the more relevant story — so this
  * is only rendered for SUBMITTED and READY requisitions, fetching lazily on
- * first expand. Each line gets a stacked progress bar (own/office/borrowed/
- * short, proportional to qtyNeeded) and colour-coded badges, with a totals
+ * first expand. Each line gets a stacked progress bar (own/substitute/office/
+ * borrowed/short, proportional to qtyNeeded) and colour-coded badges, with a totals
  * summary across every line at the bottom.
  */
 function ResolutionBreakdownPanel({
@@ -149,11 +149,12 @@ function ResolutionBreakdownPanel({
   const totals = data.lines.reduce(
     (acc, line) => ({
       own: acc.own + line.qtyFromOwn,
+      substitute: acc.substitute + line.qtyFromSubstitute,
       office: acc.office + line.qtyFromOffice,
       borrowed: acc.borrowed + line.qtyFromBorrow,
       short: acc.short + line.qtyShort,
     }),
-    { own: 0, office: 0, borrowed: 0, short: 0 },
+    { own: 0, substitute: 0, office: 0, borrowed: 0, short: 0 },
   );
 
   return (
@@ -166,12 +167,14 @@ function ResolutionBreakdownPanel({
           const denominator = Math.max(
             line.qtyNeeded,
             line.qtyFromOwn +
+              line.qtyFromSubstitute +
               line.qtyFromOffice +
               line.qtyFromBorrow +
               line.qtyShort,
             1,
           );
           const ownPct = (line.qtyFromOwn / denominator) * 100;
+          const substitutePct = (line.qtyFromSubstitute / denominator) * 100;
           const officePct = (line.qtyFromOffice / denominator) * 100;
           const borrowedPct = (line.qtyFromBorrow / denominator) * 100;
           const shortPct = (line.qtyShort / denominator) * 100;
@@ -196,13 +199,16 @@ function ResolutionBreakdownPanel({
               <div
                 className="mb-3 flex h-2 overflow-hidden rounded-full bg-slate-100"
                 role="img"
-                aria-label={`Own quota ${line.qtyFromOwn}, office ${line.qtyFromOffice}, borrowed ${line.qtyFromBorrow}, short ${line.qtyShort}, out of ${line.qtyNeeded} needed`}
+                aria-label={`Own quota ${line.qtyFromOwn}, substitute ${line.qtyFromSubstitute}, office ${line.qtyFromOffice}, borrowed ${line.qtyFromBorrow}, short ${line.qtyShort}, out of ${line.qtyNeeded} needed`}
               >
                 {ownPct > 0 && (
                   <div
                     className="bg-green-500"
                     style={{ width: `${ownPct}%` }}
                   />
+                )}
+                {substitutePct > 0 && (
+                  <div className="bg-purple-500" style={{ width: String(substitutePct) + "%" }} />
                 )}
                 {officePct > 0 && (
                   <div
@@ -232,6 +238,9 @@ function ResolutionBreakdownPanel({
                     className="bg-green-100 text-green-700"
                   />
                 )}
+                {line.qtyFromSubstitute > 0 && (
+                  <TierBadge label="Substitute" qty={line.qtyFromSubstitute} className="bg-purple-100 text-purple-800" />
+                )}
                 {line.qtyFromOffice > 0 && (
                   <TierBadge
                     label="Office"
@@ -254,6 +263,7 @@ function ResolutionBreakdownPanel({
                   />
                 )}
                 {line.qtyFromOwn === 0 &&
+                  line.qtyFromSubstitute === 0 &&
                   line.qtyFromOffice === 0 &&
                   line.qtyFromBorrow === 0 &&
                   line.qtyShort === 0 && (
@@ -262,6 +272,15 @@ function ResolutionBreakdownPanel({
                     </span>
                   )}
               </div>
+              {line.substitutes.length > 0 && (
+                <p className="mt-2 text-xs text-purple-800">
+                  {line.substitutes.map((substitute) =>
+                    substitute.componentCode + ": " + substitute.physicalQty +
+                    " physical units at " + substitute.ratio + ":1 for " +
+                    substitute.equivalentQty + " requested units",
+                  ).join("; ")}
+                </p>
+              )}
             </li>
           );
         })}
@@ -276,6 +295,9 @@ function ResolutionBreakdownPanel({
           <span className="text-green-700">
             <span className="font-semibold">{totals.own}</span> from own
             quota
+          </span>
+          <span className="text-purple-800">
+            <span className="font-semibold">{totals.substitute}</span> substituted
           </span>
           <span className="text-blue-700">
             <span className="font-semibold">{totals.office}</span> from
@@ -344,7 +366,7 @@ function IssuePreviewList({ requisitionId }: { requisitionId: string }) {
             const insufficient = line.currentStock < line.qtyNeeded;
 
             return (
-              <tr key={line.lineId}>
+              <tr key={line.lineId + "-" + line.componentId}>
                 <td className="px-4 py-2 text-sm text-slate-700">
                   <span className="font-medium text-slate-900">
                     {line.componentCode}
@@ -435,11 +457,18 @@ function ReturnPreviewList({ requisitionId }: { requisitionId: string }) {
 }
 
 export default function Requisitions() {
+  const { confirm } = useAppDialog();
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
 
   const allowedTypes = raisableTypes(user?.role);
   const canRaise = allowedTypes.length > 0;
+  const blockStatus = useQuery({
+    queryKey: ["penalties", "block-status", user?.id],
+    queryFn: getPenaltyBlockStatus,
+    enabled: allowedTypes.includes("PERSONAL"),
+  });
+  const personalBlocked = blockStatus.data?.blocked ?? false;
 
   const [typeFilter, setTypeFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -448,8 +477,7 @@ export default function Requisitions() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   // The wizard's session path only exists for roles that can raise CLASS
-  // (LAB_ASSISTANT, SYSTEM_ADMIN — mirrors POST /sessions/:id/draft-requisition's
-  // own requireRole guard); everyone else only ever sees the manual form.
+  // (assigned LAB_ASSISTANT); everyone else only sees permitted forms.
   const manualAllowedTypes = allowedTypes.filter((type) => type !== "CLASS");
   const canUseSessionWizard = allowedTypes.includes("CLASS");
 
@@ -493,6 +521,25 @@ export default function Requisitions() {
     Record<string, ReturnDraft>
   >({});
   const [returnError, setReturnError] = useState("");
+  const { data: returnPreview, isLoading: loadingReturnPreview } = useQuery({
+    queryKey: ["requisition-return-preview", returnRequisitionTarget?.id],
+    queryFn: () => getReturnPreview(returnRequisitionTarget!.id),
+    enabled: Boolean(returnRequisitionTarget),
+  });
+
+  useEffect(() => {
+    if (!returnRequisitionTarget || !returnPreview) return;
+    const drafts: Record<string, ReturnDraft> = {};
+    for (const line of returnPreview.lines) {
+      drafts[line.componentId] = {
+        goodQty: String(line.qtyIssued),
+        damagedQty: "0",
+        lostQty: "0",
+        usedUpQty: "0",
+      };
+    }
+    setReturnDrafts(drafts);
+  }, [returnPreview, returnRequisitionTarget]);
 
   const limit = 10;
 
@@ -587,6 +634,17 @@ export default function Requisitions() {
     },
     onError: (mutationError: unknown) => {
       setFormError(getErrorMessage(mutationError));
+    },
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: cancelRequisition,
+    onSuccess: async () => {
+      setActionError("");
+      await refresh();
+    },
+    onError: (mutationError: unknown) => {
+      setActionError(getErrorMessage(mutationError));
     },
   });
 
@@ -745,7 +803,7 @@ export default function Requisitions() {
     }
 
     return (
-      user?.role === "SYSTEM_ADMIN" || requisition.requestedById === user?.id
+      requisition.requestedById === user?.id
     );
   }
 
@@ -756,7 +814,7 @@ export default function Requisitions() {
     setWizardDraft(null);
     setWizardSubmitted(null);
     setWizardError("");
-    setFormType(manualAllowedTypes[0] ?? "PERSONAL");
+    setFormType(manualAllowedTypes.find((type) => !personalBlocked || type !== "PERSONAL") ?? "PERSONAL");
     setFormFrom("");
     setFormTo("");
     setFormError("");
@@ -842,6 +900,10 @@ export default function Requisitions() {
   function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError("");
+    if (formType === "PERSONAL" && personalBlocked) {
+      setFormError("Outstanding penalties must be cleared before a personal requisition.");
+      return;
+    }
 
     if (!formFrom || !formTo) {
       setFormError("Both a start and an end time are required.");
@@ -860,8 +922,23 @@ export default function Requisitions() {
     });
   }
 
-  function handleDelete(requisition: Requisition) {
-    const confirmed = window.confirm(
+  function canCancel(requisition: Requisition): boolean {
+    return (
+      ["SUBMITTED", "READY", "AWAITING_BORROW", "AWAITING_PURCHASE"].includes(requisition.status) &&
+      requisition.requestedById === user?.id
+    );
+  }
+
+  async function handleCancel(requisition: Requisition) {
+    if (!await confirm("Cancel this requisition and release its held components?")) {
+      return;
+    }
+    setActionError("");
+    cancelMutation.mutate(requisition.id);
+  }
+
+  async function handleDelete(requisition: Requisition) {
+    const confirmed = await confirm(
       `Delete this ${requisition.type.toLowerCase()} draft?`,
     );
 
@@ -895,8 +972,8 @@ export default function Requisitions() {
     });
   }
 
-  function handleSubmitRequisition(requisition: Requisition) {
-    const confirmed = window.confirm(
+  async function handleSubmitRequisition(requisition: Requisition) {
+    const confirmed = await confirm(
       "Submit this requisition? It will be resolved against stock, quota, and borrowing and can no longer be edited.",
     );
 
@@ -929,22 +1006,7 @@ export default function Requisitions() {
   }
 
   function openReturnModal(requisition: Requisition) {
-    const drafts: Record<string, ReturnDraft> = {};
-
-    for (const line of requisition.lines) {
-      const outstanding =
-        line.qtyIssued -
-        (line.qtyReturnedGood + line.qtyDamaged + line.qtyLost + line.qtyUsedUp);
-
-      drafts[line.id] = {
-        goodQty: String(Math.max(outstanding, 0)),
-        damagedQty: "0",
-        lostQty: "0",
-        usedUpQty: "0",
-      };
-    }
-
-    setReturnDrafts(drafts);
+    setReturnDrafts({});
     setReturnError("");
     setReturnSuccessMessage("");
     setReturnRequisitionTarget(requisition);
@@ -970,59 +1032,45 @@ export default function Requisitions() {
   function handleReturnSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setReturnError("");
-
-    if (!returnRequisitionTarget) {
-      return;
-    }
+    if (!returnRequisitionTarget || !returnPreview) return;
 
     const items: ReturnRequisitionItemInput[] = [];
-
-    for (const line of returnRequisitionTarget.lines) {
-      const draft = returnDrafts[line.id];
-
+    for (const line of returnPreview.lines) {
+      const draft = returnDrafts[line.componentId];
       if (!draft) {
-        continue;
-      }
-
-      const goodQty = Number(draft.goodQty) || 0;
-      const damagedQty = Number(draft.damagedQty) || 0;
-      const lostQty = Number(draft.lostQty) || 0;
-      const usedUpQty = Number(draft.usedUpQty) || 0;
-
-      if ([goodQty, damagedQty, lostQty, usedUpQty].some((qty) => qty < 0)) {
-        setReturnError("Quantities cannot be negative.");
+        setReturnError("Wait for the issued component list to load.");
         return;
       }
-
+      const goodQty = Number(draft.goodQty);
+      const damagedQty = Number(draft.damagedQty);
+      const lostQty = Number(draft.lostQty);
+      const usedUpQty = Number(draft.usedUpQty);
+      const quantities = [goodQty, damagedQty, lostQty, usedUpQty];
+      if (quantities.some((qty) => !Number.isInteger(qty) || qty < 0)) {
+        setReturnError("Return quantities must be non-negative whole numbers.");
+        return;
+      }
       const total = goodQty + damagedQty + lostQty + usedUpQty;
-
-      // The server requires every issued line's return to fully account for
-      // its qtyIssued in this one call (returnRequisition rejects any other
-      // sum with "Return quantity mismatch") — checked here too so the user
-      // sees it before submitting, not after a round trip.
-      if (line.qtyIssued > 0 && total !== line.qtyIssued) {
+      if (total !== line.qtyIssued) {
         setReturnError(
-          `${line.component.code}: good + damaged + lost + used up must add up to the issued quantity (${line.qtyIssued}), not ${total}.`,
+          line.componentCode + ": return quantities must total " +
+          line.qtyIssued + ", not " + total + ".",
         );
         return;
       }
-
-      if (total > 0) {
-        items.push({
-          componentId: line.componentId,
-          goodQty,
-          damagedQty,
-          lostQty,
-          usedUpQty,
-        });
-      }
+      items.push({
+        componentId: line.componentId,
+        goodQty,
+        damagedQty,
+        lostQty,
+        usedUpQty,
+      });
     }
 
     if (items.length === 0) {
-      setReturnError("Enter at least one quantity to return.");
+      setReturnError("No issued components to return.");
       return;
     }
-
     returnMutation.mutate({
       requisitionId: returnRequisitionTarget.id,
       items,
@@ -1047,12 +1095,15 @@ export default function Requisitions() {
           <button
             type="button"
             onClick={openForm}
-            className="rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700"
+            disabled={personalBlocked && allowedTypes.every((type) => type === "PERSONAL")}
+            className="rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             New Requisition
           </button>
         )}
       </div>
+
+      {personalBlocked && <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Outstanding penalties have reached a configured threshold. Personal requisitions are paused until the balance is paid or waived. <Link to="/penalties" className="font-semibold underline">View penalties</Link></p>}
 
       <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-4 sm:flex-row">
@@ -1071,7 +1122,7 @@ export default function Requisitions() {
                 setTypeFilter(event.target.value);
                 setPage(1);
               }}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
             >
               <option value="">All types</option>
               <option value="CLASS">Class</option>
@@ -1095,7 +1146,7 @@ export default function Requisitions() {
                 setStatusFilter(event.target.value);
                 setPage(1);
               }}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
             >
               <option value="">All statuses</option>
               {Object.keys(STATUS_STYLES).map((status) => (
@@ -1215,6 +1266,13 @@ export default function Requisitions() {
 
                       <td className="whitespace-nowrap px-6 py-4 text-sm font-semibold text-slate-900">
                         {requisition.type}
+                        <div className="mt-1 text-xs font-normal text-slate-500">
+                          {requisition.origin === "AUTO_DRAFT"
+                            ? "Automatic draft"
+                            : requisition.origin === "INSTRUCTOR_LIVE"
+                              ? "Instructor order"
+                              : "Lab assistant"}
+                        </div>
                       </td>
 
                       <td className="px-6 py-4 text-sm text-slate-700">
@@ -1268,6 +1326,17 @@ export default function Requisitions() {
 
                       <td className="whitespace-nowrap px-6 py-4 text-right">
                         <div className="flex justify-end gap-2">
+                          {canCancel(requisition) && (
+                            <button
+                              type="button"
+                              onClick={() => handleCancel(requisition)}
+                              disabled={cancelMutation.isPending}
+                              className="rounded-md border border-amber-300 px-3 py-1.5 text-sm font-medium text-amber-800 transition hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Cancel
+                            </button>
+                          )}
+
                           {canEdit(requisition) && (
                             <button
                               type="button"
@@ -1283,7 +1352,7 @@ export default function Requisitions() {
                             <button
                               type="button"
                               onClick={() => handleSubmitRequisition(requisition)}
-                              disabled={submitMutation.isPending}
+                              disabled={submitMutation.isPending || (personalBlocked && requisition.type === "PERSONAL")}
                               className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                             >
                               Submit
@@ -1301,7 +1370,7 @@ export default function Requisitions() {
                               </button>
                             )}
 
-                          {canIssueOrReturn(user?.role) &&
+                          {(canIssueOrReturn(user?.role) || (user?.role === "LAB_ASSISTANT" && requisition.type === "CLASS")) &&
                             requisition.status === "ISSUED" && (
                               <button
                                 type="button"
@@ -1375,7 +1444,7 @@ export default function Requisitions() {
                                               [line.id]: event.target.value,
                                             }))
                                           }
-                                          className="w-24 rounded-lg border border-slate-300 px-3 py-1.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                                          className="w-24 rounded-lg border border-slate-300 px-3 py-1.5 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                                         />
 
                                         <span className="text-xs text-slate-500">
@@ -1444,7 +1513,7 @@ export default function Requisitions() {
                                   onChange={(event) =>
                                     setNewLineComponentId(event.target.value)
                                   }
-                                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                                 >
                                   <option value="">Select a component</option>
                                   {components.map((component) => (
@@ -1474,7 +1543,7 @@ export default function Requisitions() {
                                   onChange={(event) =>
                                     setNewLineQty(event.target.value)
                                   }
-                                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                                 />
                               </div>
 
@@ -1817,6 +1886,9 @@ export default function Requisitions() {
                                 Own quota: {line.qtyFromOwn}
                               </span>
                               <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">
+                                Substitute: {line.qtyFromSubstitute}
+                              </span>
+                              <span className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">
                                 Office: {line.qtyFromOffice}
                               </span>
                               <span className="inline-flex items-center rounded-full bg-yellow-100 px-2.5 py-1 text-xs font-semibold text-yellow-800">
@@ -1866,10 +1938,10 @@ export default function Requisitions() {
                     onChange={(event) =>
                       setFormType(event.target.value as RequisitionType)
                     }
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                   >
                     {manualAllowedTypes.map((type) => (
-                      <option key={type} value={type}>
+                      <option key={type} value={type} disabled={personalBlocked && type === "PERSONAL"}>
                         {type}
                       </option>
                     ))}
@@ -1890,7 +1962,7 @@ export default function Requisitions() {
                       type="datetime-local"
                       value={formFrom}
                       onChange={(event) => setFormFrom(event.target.value)}
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                     />
                   </div>
 
@@ -1907,7 +1979,7 @@ export default function Requisitions() {
                       type="datetime-local"
                       value={formTo}
                       onChange={(event) => setFormTo(event.target.value)}
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                     />
                   </div>
                 </div>
@@ -1932,7 +2004,7 @@ export default function Requisitions() {
 
                   <button
                     type="submit"
-                    disabled={createMutation.isPending}
+                    disabled={createMutation.isPending || (personalBlocked && formType === "PERSONAL")}
                     className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {createMutation.isPending ? "Creating..." : "Create Draft"}
@@ -2082,26 +2154,20 @@ export default function Requisitions() {
                   </thead>
 
                   <tbody className="divide-y divide-slate-100 bg-white">
-                    {returnRequisitionTarget.lines
-                      .filter((line) => line.qtyIssued > 0)
-                      .map((line) => {
-                        const draft = returnDrafts[line.id];
-                        const outstanding =
-                          line.qtyIssued -
-                          (line.qtyReturnedGood +
-                            line.qtyDamaged +
-                            line.qtyLost +
-                            line.qtyUsedUp);
+                    {returnPreview?.lines.map((line) => {
+                        const draft = returnDrafts[line.componentId];
+                        const outstanding = line.qtyIssued;
 
                         return (
-                          <tr key={line.id}>
+                          <tr key={line.componentId}>
                             <td className="px-4 py-2 text-sm text-slate-700">
                               <span className="font-medium text-slate-900">
-                                {line.component.code}
+                                {line.componentCode}
                               </span>
+                              {line.isSubstitute && <div className="text-xs text-purple-700">Substitute for {line.originalComponentCode}</div>}
                               <div className="text-xs text-slate-500">
                                 {outstanding} of {line.qtyIssued}{" "}
-                                {line.component.unit} outstanding
+                                {"units"} outstanding
                               </div>
                             </td>
 
@@ -2117,16 +2183,16 @@ export default function Requisitions() {
                                 <input
                                   type="number"
                                   min={0}
-                                  aria-label={`${field} for ${line.component.code}`}
+                                  aria-label={`${field} for ${line.componentCode}`}
                                   value={draft?.[field] ?? "0"}
                                   onChange={(event) =>
                                     updateReturnDraft(
-                                      line.id,
+                                      line.componentId,
                                       field,
                                       event.target.value,
                                     )
                                   }
-                                  className="w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                                  className="w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                                 />
                               </td>
                             ))}
@@ -2157,7 +2223,7 @@ export default function Requisitions() {
 
                 <button
                   type="submit"
-                  disabled={returnMutation.isPending}
+                  disabled={returnMutation.isPending || loadingReturnPreview || !returnPreview}
                   className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {returnMutation.isPending ? "Saving..." : "Record Return"}

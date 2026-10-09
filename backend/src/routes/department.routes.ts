@@ -1,6 +1,6 @@
 import { Router, Response } from "express";
 import { requireAuth } from "../middleware/auth";
-import { requireRole } from "../middleware/rbac";
+import { ALL_ROLES, requireRole } from "../middleware/rbac";
 import {
   createDepartmentSchema,
   listDepartmentsQuerySchema,
@@ -41,7 +41,7 @@ router.post(
 // GET /api/departments - List (all authenticated users)
 router.get(
   "/departments",
-  requireAuth,
+  requireAuth, requireRole(...ALL_ROLES),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const query = listDepartmentsQuerySchema.parse(req.query);
@@ -57,7 +57,7 @@ router.get(
 // GET /api/departments/:id - Get one (all authenticated users)
 router.get(
   "/departments/:id",
-  requireAuth,
+  requireAuth, requireRole(...ALL_ROLES),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const department = await DepartmentService.getDepartmentById(

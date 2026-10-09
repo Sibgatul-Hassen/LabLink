@@ -85,6 +85,13 @@ export async function deleteRequisition(id: string): Promise<void> {
   await apiClient.delete(`/api/requisitions/${id}`);
 }
 
+export async function cancelRequisition(id: string): Promise<Requisition> {
+  const response = await apiClient.post<RequisitionResponse>(
+    `/api/requisitions/${id}/cancel`,
+  );
+  return response.data.data;
+}
+
 // All three line operations return the whole requisition, so the caller always
 // holds a current line list without a second fetch.
 
@@ -124,6 +131,17 @@ export async function removeRequisitionLine(
   return response.data.data;
 }
 
+export async function orderLiveForSession(
+  sessionId: string,
+  lines: CreateRequisitionLineInput[],
+): Promise<Requisition> {
+  const response = await apiClient.post<RequisitionResponse>(
+    "/api/sessions/" + sessionId + "/live-order",
+    { lines },
+  );
+  return response.data.data;
+}
+
 export async function submitRequisition(id: string): Promise<Requisition> {
   const response = await apiClient.post<RequisitionResponse>(
     `/api/requisitions/${id}/submit`,
@@ -144,9 +162,7 @@ export async function getRequisitionResolution(
 
 // Lives here despite the /api/sessions path (per the brief) since it
 // returns — and is conceptually about creating — a Requisition, matching
-// every other function in this file. Gated server-side to LAB_ASSISTANT
-// and SYSTEM_ADMIN (session.routes.ts), the same roles that can raise a
-// CLASS requisition by hand.
+// every other function in this file. The API requires an assigned lab assistant.
 export async function draftRequisitionForSession(
   sessionId: string,
 ): Promise<Requisition> {

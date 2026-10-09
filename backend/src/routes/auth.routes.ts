@@ -2,6 +2,7 @@ import { Router, Response } from "express";
 import { loginRequestSchema } from "../schemas/auth.schema";
 import { AuthService } from "../services/auth.service";
 import { requireAuth } from "../middleware/auth";
+import { ALL_ROLES, requireRole } from "../middleware/rbac";
 import { AuthenticatedRequest } from "../types";
 
 const router = Router();
@@ -26,7 +27,7 @@ router.post("/auth/login", async (req: AuthenticatedRequest, res: Response): Pro
   }
 });
 
-router.get("/auth/me", requireAuth, async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+router.get("/auth/me", requireAuth, requireRole(...ALL_ROLES), async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     if (!req.user) {
       res.status(401).json({ error: "Not authenticated" });

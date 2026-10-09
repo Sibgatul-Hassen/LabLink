@@ -445,7 +445,7 @@ describe("Borrow Request API Integration Tests", () => {
 
     it("returns departments ranked by available quantity, descending", async () => {
       const res = await request(app)
-        .get(lendersUrl(deptZeroId))
+        .get(lendersUrl(deptBorrowerId))
         .set("Authorization", `Bearer ${deptStoreHeadToken}`);
 
       expect(res.status).toBe(200);
@@ -457,14 +457,12 @@ describe("Borrow Request API Integration Tests", () => {
       );
 
       expect(byId.get(deptLenderId)).toBe(20);
-      expect(byId.get(deptBorrowerId)).toBe(15);
       expect(byId.get(deptOtherId)).toBe(5);
 
       const indexOf = (deptId: string) =>
         res.body.data.findIndex((l: Lender) => l.departmentId === deptId);
 
-      expect(indexOf(deptLenderId)).toBeLessThan(indexOf(deptBorrowerId));
-      expect(indexOf(deptBorrowerId)).toBeLessThan(indexOf(deptOtherId));
+      expect(indexOf(deptLenderId)).toBeLessThan(indexOf(deptOtherId));
     });
 
     it("excludes the requesting department", async () => {
@@ -486,7 +484,7 @@ describe("Borrow Request API Integration Tests", () => {
 
     it("excludes departments with zero availability", async () => {
       const res = await request(app)
-        .get(lendersUrl(deptOtherId))
+        .get(lendersUrl(deptBorrowerId))
         .set("Authorization", `Bearer ${deptStoreHeadToken}`);
 
       expect(res.status).toBe(200);
