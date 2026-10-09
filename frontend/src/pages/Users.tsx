@@ -1,4 +1,5 @@
 import axios from "axios";
+import { useAppDialog } from "../components/ui/dialog";
 import { type FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -66,6 +67,7 @@ function getErrorMessage(error: unknown): string {
 }
 
 export default function Users() {
+  const { confirm } = useAppDialog();
   const queryClient = useQueryClient();
   const currentUser = useAuthStore((state) => state.user);
 
@@ -244,7 +246,7 @@ export default function Users() {
     passwordMutation.mutate({ id: passwordUser.id, password: passwordValue });
   }
 
-  function handleToggleActive(user: UserAccount) {
+  async function handleToggleActive(user: UserAccount) {
     const isSelf = user.id === currentUser?.id;
 
     if (isSelf && user.isActive) {
@@ -252,7 +254,7 @@ export default function Users() {
     }
 
     if (user.isActive) {
-      const confirmed = window.confirm(
+      const confirmed = await confirm(
         `Deactivate "${user.fullName}"? They will no longer be able to sign in.`,
       );
 
@@ -311,7 +313,7 @@ export default function Users() {
                 setPage(1);
               }}
               placeholder="Search by name or email"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
             />
           </div>
 
@@ -330,7 +332,7 @@ export default function Users() {
                 setRoleFilter(event.target.value);
                 setPage(1);
               }}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
             >
               <option value="">All roles</option>
               {ROLES.map((role) => (
@@ -560,7 +562,7 @@ export default function Users() {
                     }))
                   }
                   placeholder="name@university.edu"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                 />
               </div>
 
@@ -584,7 +586,7 @@ export default function Users() {
                       }))
                     }
                     placeholder="At least 6 characters"
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                   />
                 </div>
               )}
@@ -608,7 +610,7 @@ export default function Users() {
                     }))
                   }
                   placeholder="Example: Jane Doe"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                 />
               </div>
 
@@ -630,7 +632,7 @@ export default function Users() {
                       role: event.target.value as Role,
                     }))
                   }
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:cursor-not-allowed disabled:bg-slate-100"
                 >
                   {ROLES.map((role) => (
                     <option key={role} value={role}>
@@ -664,7 +666,7 @@ export default function Users() {
                         departmentId: event.target.value,
                       }))
                     }
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                   >
                     <option value="">Select a department</option>
                     {departments.map((department) => (
@@ -749,7 +751,7 @@ export default function Users() {
                   value={passwordValue}
                   onChange={(event) => setPasswordValue(event.target.value)}
                   placeholder="At least 6 characters"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                 />
               </div>
 

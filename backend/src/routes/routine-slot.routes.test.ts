@@ -116,8 +116,8 @@ describe("RoutineSlot CRUD API Integration Tests", () => {
         email: "rs-admin@test.com",
         passwordHash: hashedPassword,
         fullName: "Routine Slot Test Admin",
-        role: "SYSTEM_ADMIN",
-        departmentId: null,
+        role: "DEPT_STORE_HEAD",
+        departmentId: department.id,
       },
     });
 
@@ -157,7 +157,7 @@ describe("RoutineSlot CRUD API Integration Tests", () => {
   });
 
   describe("CREATE - POST /api/routine-slots", () => {
-    it("should create a routine slot with SYSTEM_ADMIN role", async () => {
+    it("should create a routine slot with DEPT_STORE_HEAD role", async () => {
       const res = await request(app)
         .post("/api/routine-slots")
         .set("Authorization", `Bearer ${systemAdminToken}`)
@@ -409,7 +409,7 @@ describe("RoutineSlot CRUD API Integration Tests", () => {
   });
 
   describe("UPDATE - PATCH /api/routine-slots/:id", () => {
-    it("should update a routine slot with SYSTEM_ADMIN role", async () => {
+    it("should update a routine slot with DEPT_STORE_HEAD role", async () => {
       const res = await request(app)
         .patch(`/api/routine-slots/${routineSlotId}`)
         .set("Authorization", `Bearer ${systemAdminToken}`)
@@ -477,7 +477,7 @@ describe("RoutineSlot CRUD API Integration Tests", () => {
       );
     });
 
-    it("should delete a routine slot with SYSTEM_ADMIN role", async () => {
+    it("should delete a routine slot with DEPT_STORE_HEAD role", async () => {
       const res = await request(app)
         .delete(`/api/routine-slots/${routineSlotId}`)
         .set("Authorization", `Bearer ${systemAdminToken}`);

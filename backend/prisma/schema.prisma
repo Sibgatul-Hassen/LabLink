@@ -240,6 +240,7 @@ model Component {
   penalties        Penalty[]
   substituteFor    ComponentSubstitute[] @relation("Original")
   substituteOf     ComponentSubstitute[] @relation("Substitute")
+  substituteAllocations Allocation[] @relation("AllocationSubstitute")
 
   @@index([category])
   @@index([isActive])
@@ -473,14 +474,22 @@ model Allocation {
   id                String           @id @default(cuid())
   requisitionLineId String
   sourceDeptId      String? // null when drawn from the spare pool
+  substituteComponentId String?
+  substituteRatio   Int?
   qty               Int
   source            AllocationSource
   status            AllocationStatus @default(HELD)
+  returnedGoodQty   Int              @default(0)
+  damagedQty        Int              @default(0)
+  lostQty           Int              @default(0)
+  usedUpQty         Int              @default(0)
   createdAt         DateTime         @default(now())
 
   requisitionLine RequisitionLine @relation(fields: [requisitionLineId], references: [id], onDelete: Cascade)
+  substituteComponent Component? @relation("AllocationSubstitute", fields: [substituteComponentId], references: [id])
 
   @@index([sourceDeptId, status])
+  @@index([substituteComponentId, status])
 }
 
 // ─────────────── borrowing ───────────────

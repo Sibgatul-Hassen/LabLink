@@ -1,6 +1,7 @@
 import { Router, Response } from "express";
 
 import { requireAuth } from "../middleware/auth";
+import { ALL_ROLES, requireRole } from "../middleware/rbac";
 import { NotificationService } from "../services/notification.service";
 import { AuthenticatedRequest } from "../types";
 
@@ -27,7 +28,7 @@ function handleNotificationError(error: unknown, res: Response): void {
 // the same convention GET /purchase-requests and GET /borrow-requests use.
 router.get(
   "/notifications",
-  requireAuth,
+  requireAuth, requireRole(...ALL_ROLES),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     if (!req.user) {
       res.status(401).json({ error: "Not authenticated" });
@@ -44,7 +45,7 @@ router.get(
 
 router.patch(
   "/notifications/:id/read",
-  requireAuth,
+  requireAuth, requireRole(...ALL_ROLES),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       if (!req.user) {

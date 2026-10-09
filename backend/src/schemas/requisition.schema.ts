@@ -8,6 +8,12 @@ const requisitionLineInput = z.object({
     .positive("Quantity must be at least 1"),
 });
 
+export const liveOrderSchema = z.object({
+  lines: z.array(requisitionLineInput).min(1, "Add at least one component"),
+});
+
+export type LiveOrderRequest = z.infer<typeof liveOrderSchema>;
+
 export const createRequisitionSchema = z
   .object({
     type: z.enum(["CLASS", "PERSONAL", "MAINTENANCE"]),

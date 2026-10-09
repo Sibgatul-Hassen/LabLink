@@ -9,6 +9,7 @@ import {
   updateReorderPoint,
 } from "../api/stock.api";
 import { useAuthStore } from "../store/authStore";
+import StockTransferDialog from "../components/StockTransferDialog";
 import type { Stock } from "../types";
 
 function getErrorMessage(error: unknown): string {
@@ -42,12 +43,12 @@ export default function Stocks() {
   const [reorderError, setReorderError] = useState("");
 
   const [historyStock, setHistoryStock] = useState<Stock | null>(null);
+  const [transferTarget, setTransferTarget] = useState<Stock | null>(null);
 
   const limit = 10;
 
   const canManage =
-    user?.role === "CENTRAL_STORE_OFFICER" ||
-    user?.role === "SYSTEM_ADMIN";
+    user?.role === "CENTRAL_STORE_OFFICER";
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: [
@@ -411,6 +412,7 @@ export default function Stocks() {
                               >
                                 Reorder
                               </button>
+                              <button type="button" onClick={() => setTransferTarget(stock)} className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">Transfer</button>
                             </>
                           )}
                         </div>
@@ -629,6 +631,7 @@ export default function Stocks() {
           </div>
         </div>
       )}
+      <StockTransferDialog stock={transferTarget} onClose={() => setTransferTarget(null)} />
     </section>
   );
 }

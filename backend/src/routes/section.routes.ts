@@ -2,7 +2,8 @@ import { Router, Response } from "express";
 import { ZodError } from "zod";
 
 import { requireAuth } from "../middleware/auth";
-import { requireRole } from "../middleware/rbac";
+import { requireAcademicScope } from "../middleware/academicScope";
+import { ALL_ROLES, requireRole } from "../middleware/rbac";
 import {
   createSectionSchema,
   listSectionsQuerySchema,
@@ -26,6 +27,8 @@ function handleSectionError(error: unknown, res: Response): void {
     res.status(500).json({ error: "Internal server error" });
     return;
   }
+
+  if (error.message === "Forbidden") { res.status(403).json({ error: "Forbidden" }); return; }
 
   if (error.message === "Section not found") {
     res.status(404).json({ error: "Section not found" });
@@ -76,7 +79,8 @@ function handleSectionError(error: unknown, res: Response): void {
 router.post(
   "/sections",
   requireAuth,
-  requireRole("SYSTEM_ADMIN"),
+  requireRole("DEPT_STORE_HEAD"),
+  requireAcademicScope("course", "courseId", "body"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const validated = createSectionSchema.parse(req.body);
@@ -91,11 +95,11 @@ router.post(
 
 router.get(
   "/sections",
-  requireAuth,
+  requireAuth, requireRole("INSTRUCTOR", "LAB_ASSISTANT", "DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER", "OFFICE_ADMIN", "SYSTEM_ADMIN"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const query = listSectionsQuerySchema.parse(req.query);
-      const result = await SectionService.listSections(query);
+      const result = await SectionService.listSections(query, req.user!);
 
       res.status(200).json(result);
     } catch (error) {
@@ -107,11 +111,11 @@ router.get(
 router.get(
   "/sections/assignees",
   requireAuth,
-  requireRole("SYSTEM_ADMIN"),
+  requireRole("DEPT_STORE_HEAD", "SYSTEM_ADMIN"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const query = sectionAssigneeQuerySchema.parse(req.query);
-      const users = await SectionService.listAssignees(query.role);
+      const users = await SectionService.listAssignees(query.role, req.user?.role === "DEPT_STORE_HEAD" ? req.user.departmentId : undefined);
 
       res.status(200).json({ data: users });
     } catch (error) {
@@ -122,10 +126,10 @@ router.get(
 
 router.get(
   "/sections/:id",
-  requireAuth,
+  requireAuth, requireRole("INSTRUCTOR", "LAB_ASSISTANT", "DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER", "OFFICE_ADMIN", "SYSTEM_ADMIN"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
-      const section = await SectionService.getSectionById(req.params.id);
+      const section = await SectionService.getSectionById(req.params.id, req.user!);
 
       res.status(200).json({ data: section });
     } catch (error) {
@@ -137,7 +141,9 @@ router.get(
 router.patch(
   "/sections/:id",
   requireAuth,
-  requireRole("SYSTEM_ADMIN"),
+  requireRole("DEPT_STORE_HEAD"),
+  requireAcademicScope("section", "id"),
+  requireAcademicScope("course", "courseId", "body", true),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const validated = updateSectionSchema.parse(req.body);
@@ -157,7 +163,8 @@ router.patch(
 router.delete(
   "/sections/:id",
   requireAuth,
-  requireRole("SYSTEM_ADMIN"),
+  requireRole("DEPT_STORE_HEAD"),
+  requireAcademicScope("section", "id"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       await SectionService.deleteSection(req.params.id);

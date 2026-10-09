@@ -147,8 +147,8 @@ describe("Experiment CRUD API Integration Tests", () => {
         email: "exp-admin@test.com",
         passwordHash: hashedPassword,
         fullName: "Experiment Test Admin",
-        role: "SYSTEM_ADMIN",
-        departmentId: null,
+        role: "DEPT_STORE_HEAD",
+        departmentId: department.id,
       },
     });
 
@@ -188,7 +188,7 @@ describe("Experiment CRUD API Integration Tests", () => {
   });
 
   describe("CREATE - POST /api/experiments", () => {
-    it("should create an experiment with SYSTEM_ADMIN role", async () => {
+    it("should create an experiment with DEPT_STORE_HEAD role", async () => {
       const res = await request(app)
         .post("/api/experiments")
         .set("Authorization", `Bearer ${systemAdminToken}`)
@@ -301,7 +301,7 @@ describe("Experiment CRUD API Integration Tests", () => {
   });
 
   describe("UPDATE - PATCH /api/experiments/:id", () => {
-    it("should update an experiment with SYSTEM_ADMIN role", async () => {
+    it("should update an experiment with DEPT_STORE_HEAD role", async () => {
       const res = await request(app)
         .patch(`/api/experiments/${experimentId}`)
         .set("Authorization", `Bearer ${systemAdminToken}`)

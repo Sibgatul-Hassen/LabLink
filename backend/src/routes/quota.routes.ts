@@ -29,7 +29,7 @@ function getScopedDepartmentId(
 // GET /api/quotas - List quotas with department scoping
 router.get(
   "/quotas",
-  requireAuth,
+  requireAuth, requireRole("DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER", "OFFICE_ADMIN", "SYSTEM_ADMIN"),
   departmentScope,
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
@@ -60,11 +60,11 @@ router.get(
 );
 
 // POST /api/quotas/suggestions - Generate automatic quota suggestions
-// CENTRAL_STORE_OFFICER and SYSTEM_ADMIN only
+// Central store generates operational quota suggestions.
 router.post(
   "/quotas/suggestions",
   requireAuth,
-  requireRole("CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  requireRole("CENTRAL_STORE_OFFICER"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       const validated = generateQuotaSuggestionsSchema.parse(req.body);
@@ -92,7 +92,7 @@ router.post(
 // GET /api/quotas/:departmentId/:componentId/history
 router.get(
   "/quotas/:departmentId/:componentId/history",
-  requireAuth,
+  requireAuth, requireRole("DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER", "OFFICE_ADMIN", "SYSTEM_ADMIN"),
   departmentScope,
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
@@ -130,7 +130,7 @@ router.get(
 // GET /api/quotas/:departmentId/:componentId
 router.get(
   "/quotas/:departmentId/:componentId",
-  requireAuth,
+  requireAuth, requireRole("DEPT_STORE_HEAD", "CENTRAL_STORE_OFFICER", "OFFICE_ADMIN", "SYSTEM_ADMIN"),
   departmentScope,
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
@@ -161,11 +161,11 @@ router.get(
 );
 
 // PATCH /api/quotas/:departmentId/:componentId
-// CENTRAL_STORE_OFFICER and SYSTEM_ADMIN only
+// Central store confirms operational quota changes.
 router.patch(
   "/quotas/:departmentId/:componentId",
   requireAuth,
-  requireRole("CENTRAL_STORE_OFFICER", "SYSTEM_ADMIN"),
+  requireRole("CENTRAL_STORE_OFFICER"),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       if (!req.user) {

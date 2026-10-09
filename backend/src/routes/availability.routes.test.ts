@@ -470,7 +470,7 @@ describe("Availability API Integration Tests", () => {
       expect(res.status).toBe(401);
     });
 
-    it("lets a student check availability for their own department", async () => {
+    it("shows a student only personal spare availability, not the department quota", async () => {
       const res = await query({
         componentId: mainComponentId,
         from: WINDOW.from.toISOString(),
@@ -478,11 +478,13 @@ describe("Availability API Integration Tests", () => {
       }).set("Authorization", `Bearer ${studentToken}`);
 
       expect(res.status).toBe(200);
-      expect(res.body.data.departmentId).toBe(departmentAId);
-      expect(res.body.data.available).toBe(20);
+      expect(res.body.data.source).toBe("SPARE");
+      expect(res.body.data.available).toBe(0);
+      expect(res.body.data).not.toHaveProperty("quota");
+      expect(res.body.data).not.toHaveProperty("departmentId");
     });
 
-    it("ignores a department a scoped user is not part of", async () => {
+    it("refuses a student request for another department's teaching quota", async () => {
       const res = await query({
         componentId: mainComponentId,
         departmentId: departmentBId,
@@ -490,9 +492,21 @@ describe("Availability API Integration Tests", () => {
         to: WINDOW.to.toISOString(),
       }).set("Authorization", `Bearer ${studentToken}`);
 
-      expect(res.status).toBe(200);
-      // Asked about B, answered about A.
-      expect(res.body.data.departmentId).toBe(departmentAId);
+      expect(res.status).toBe(403);
+    });
+
+    it("subtracts overlapping spare holds and physical holds from personal availability", async () => {
+      await prisma.stock.update({ where: { componentId: mainComponentId }, data: { spareQty: 7 } });
+      try {
+        await makeClaim({ componentId: mainComponentId, sourceDeptId: null, qty: 3, from: WINDOW.from, to: WINDOW.to });
+        await makeClaim({ componentId: mainComponentId, sourceDeptId: departmentBId, qty: 35, from: WINDOW.from, to: WINDOW.to });
+        const res = await query({ componentId: mainComponentId, from: WINDOW.from.toISOString(), to: WINDOW.to.toISOString() })
+          .set("Authorization", `Bearer ${studentToken}`);
+        expect(res.status).toBe(200);
+        expect(res.body.data).toMatchObject({ source: "SPARE", spareQty: 7, heldSpare: 3, physicalFree: 2, available: 2 });
+      } finally {
+        await prisma.stock.update({ where: { componentId: mainComponentId }, data: { spareQty: 0 } });
+      }
     });
 
     it("lets an unscoped role name any department", async () => {

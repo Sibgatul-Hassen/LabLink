@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 
 import { prisma } from "../lib/prisma";
+import { AcademicActor, experimentReadScope } from "./academic-read-scope";
 import {
   CreateExperimentItemRequest,
   CreateExperimentRequest,
@@ -99,12 +100,13 @@ export class ExperimentService {
 
   static async listExperiments(
     query: ListExperimentsQuery,
+    actor?: AcademicActor,
   ): Promise<PaginatedExperimentsResponse> {
     const { search, courseId } = query;
     const page = Number(query.page) || 1;
     const limit = Number(query.limit) || 20;
 
-    const where: Prisma.ExperimentWhereInput = {};
+    const where: Prisma.ExperimentWhereInput = actor ? { AND: [experimentReadScope(actor)] } : {};
 
     if (courseId) {
       where.courseId = courseId;
@@ -131,7 +133,7 @@ export class ExperimentService {
     return { data: experiments, total, page, limit };
   }
 
-  static async getExperimentById(id: string): Promise<ExperimentWithRelations> {
+  static async getExperimentById(id: string, actor?: AcademicActor): Promise<ExperimentWithRelations> {
     const experiment = await prisma.experiment.findUnique({
       where: { id },
       include: experimentInclude,
@@ -141,6 +143,7 @@ export class ExperimentService {
       throw new Error("Experiment not found");
     }
 
+    if (actor && !(await prisma.experiment.count({ where: { id, AND: [experimentReadScope(actor)] } }))) throw new Error("Forbidden");
     return experiment;
   }
 

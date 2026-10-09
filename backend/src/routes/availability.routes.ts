@@ -2,6 +2,7 @@ import { Router, Response } from "express";
 import { ZodError } from "zod";
 
 import { requireAuth } from "../middleware/auth";
+import { ALL_ROLES, requireRole } from "../middleware/rbac";
 import { availabilityQuerySchema } from "../schemas/availability.schema";
 import { AvailabilityService } from "../services/availability.service";
 import { prisma } from "../lib/prisma";
@@ -45,7 +46,7 @@ function handleAvailabilityError(error: unknown, res: Response): void {
 // can do at all.
 router.get(
   "/availability",
-  requireAuth,
+  requireAuth, requireRole(...ALL_ROLES),
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
       if (!req.user) {
@@ -54,6 +55,19 @@ router.get(
       }
 
       const query = availabilityQuerySchema.parse(req.query);
+
+      if (req.user.role === "STUDENT") {
+        if (query.departmentId) {
+          res.status(403).json({ error: "Department teaching quota is unavailable for personal requests" });
+          return;
+        }
+        const component = await prisma.component.findUnique({ where: { id: query.componentId } });
+        if (!component?.isActive) throw new Error("Component not found");
+        res.status(200).json({ data: await AvailabilityService.personalSpareBreakdown(
+          query.componentId, { from: query.from, to: query.to },
+        ) });
+        return;
+      }
 
       let departmentId: string;
 

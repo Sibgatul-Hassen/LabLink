@@ -213,7 +213,7 @@ describe("Stock Management API Integration Tests", () => {
     it("should list stock for an authenticated user", async () => {
       const res = await request(app)
         .get("/api/stocks?search=STOCK-TEST")
-        .set("Authorization", `Bearer ${studentToken}`);
+        .set("Authorization", `Bearer ${centralToken}`);
 
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body.data)).toBe(true);
@@ -224,7 +224,7 @@ describe("Stock Management API Integration Tests", () => {
     it("should filter low stock records", async () => {
       const res = await request(app)
         .get("/api/stocks?search=STOCK-TEST&lowStockOnly=true")
-        .set("Authorization", `Bearer ${studentToken}`);
+        .set("Authorization", `Bearer ${centralToken}`);
 
       expect(res.status).toBe(200);
       expect(res.body.data.length).toBe(1);
@@ -234,7 +234,7 @@ describe("Stock Management API Integration Tests", () => {
     it("should get stock by component ID", async () => {
       const res = await request(app)
         .get(`/api/stocks/${componentId}`)
-        .set("Authorization", `Bearer ${studentToken}`);
+        .set("Authorization", `Bearer ${centralToken}`);
 
       expect(res.status).toBe(200);
       expect(res.body.data.componentId).toBe(componentId);
@@ -246,7 +246,7 @@ describe("Stock Management API Integration Tests", () => {
     it("should return 404 for a non-existent component", async () => {
       const res = await request(app)
         .get("/api/stocks/nonexistent")
-        .set("Authorization", `Bearer ${studentToken}`);
+        .set("Authorization", `Bearer ${centralToken}`);
 
       expect(res.status).toBe(404);
     });
@@ -265,7 +265,7 @@ describe("Stock Management API Integration Tests", () => {
       expect(res.body.data.reorderPoint).toBe(6);
     });
 
-    it("should allow SYSTEM_ADMIN to update reorder point", async () => {
+    it("should deny SYSTEM_ADMIN from updating reorder point", async () => {
       const res = await request(app)
         .patch(`/api/stocks/${componentId}/reorder-point`)
         .set("Authorization", `Bearer ${adminToken}`)
@@ -273,8 +273,7 @@ describe("Stock Management API Integration Tests", () => {
           reorderPoint: 5,
         });
 
-      expect(res.status).toBe(200);
-      expect(res.body.data.reorderPoint).toBe(5);
+      expect(res.status).toBe(403);
     });
 
     it("should reject a negative reorder point", async () => {
@@ -323,7 +322,7 @@ describe("Stock Management API Integration Tests", () => {
     it("should decrease stock and create an ADJUST movement", async () => {
       const res = await request(app)
         .post(`/api/stocks/${componentId}/adjust`)
-        .set("Authorization", `Bearer ${adminToken}`)
+        .set("Authorization", `Bearer ${centralToken}`)
         .send({
           qty: -5,
           note: "Integration test decrease",
@@ -400,7 +399,7 @@ describe("Stock Management API Integration Tests", () => {
     it("should return adjustment history newest first", async () => {
       const res = await request(app)
         .get(`/api/stocks/${componentId}/movements`)
-        .set("Authorization", `Bearer ${studentToken}`);
+        .set("Authorization", `Bearer ${centralToken}`);
 
       expect(res.status).toBe(200);
       expect(res.body.total).toBe(2);

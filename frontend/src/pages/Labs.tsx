@@ -1,4 +1,5 @@
 import axios from "axios";
+import { useAppDialog } from "../components/ui/dialog";
 import { type FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -35,6 +36,7 @@ function getErrorMessage(error: unknown): string {
 }
 
 export default function Labs() {
+  const { confirm } = useAppDialog();
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
 
@@ -163,8 +165,8 @@ export default function Labs() {
     saveMutation.mutate(payload);
   }
 
-  function handleDelete(lab: Lab) {
-    const confirmed = window.confirm(
+  async function handleDelete(lab: Lab) {
+    const confirmed = await confirm(
       `Delete lab "${lab.name} (${lab.roomNo})"?`,
     );
     if (!confirmed) return;
@@ -214,7 +216,7 @@ export default function Labs() {
                 setPage(1);
               }}
               placeholder="Search by name or room number"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
             />
           </div>
 
@@ -232,7 +234,7 @@ export default function Labs() {
                 setDepartmentFilter(event.target.value);
                 setPage(1);
               }}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
             >
               <option value="">All departments</option>
               {departments.map((department) => (
@@ -415,7 +417,7 @@ export default function Labs() {
                     }))
                   }
                   placeholder="Example: Digital Systems Lab"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                 />
               </div>
 
@@ -437,7 +439,7 @@ export default function Labs() {
                     }))
                   }
                   placeholder="Example: 302"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                 />
               </div>
 
@@ -459,7 +461,7 @@ export default function Labs() {
                       groupSize: event.target.value,
                     }))
                   }
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                 />
               </div>
 
@@ -479,7 +481,7 @@ export default function Labs() {
                       departmentId: event.target.value,
                     }))
                   }
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                 >
                   <option value="">Select a department</option>
                   {departments.map((department) => (
@@ -506,7 +508,7 @@ export default function Labs() {
                       labAssistantId: event.target.value,
                     }))
                   }
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
                 >
                   <option value="">Unassigned</option>
                   {(labAssistants ?? []).map((assistant) => (
